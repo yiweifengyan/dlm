@@ -20,7 +20,7 @@ build.properties
 
 .idea
 .idea_modules
-out
+out/
 
 # Metals
 .metals
@@ -33,15 +33,13 @@ bin/
 .cache-main
 
 #User
-/*.vhd
-/*.v
 *.cf
 *.json
 *.vcd
 !tester/src/test/resources/*.vhd
 
 
-generated_rtl/
+.github/
 simWorkspace/
 tmp/
 null

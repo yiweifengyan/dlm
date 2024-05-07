@@ -14,7 +14,7 @@ object SimHelpers {
     (value >> lo) & (BigInt(1)<<(hi-lo+1))-1
   }
 
-  @deprecated
+  // @deprecated
   def genFromBigInt[T <: Bundle](gen: T, value: BigInt): T = {
     val bd = gen
     bd.assignFromBigInt(value)

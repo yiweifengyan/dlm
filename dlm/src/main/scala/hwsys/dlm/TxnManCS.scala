@@ -227,6 +227,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
 
   }
 
+
   val compLkRespRmt = new StateMachine {
 
     val WAIT_RESP = new State with EntryPoint
@@ -543,7 +544,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
         when(a) (b := b + 1)
       })
       (cntTimeOut, rTimeOut, rAbort).zipped.foreach((a,b,c) => {
-        when(a.andR) {
+        when(a.andR) {  // cntTimeout.AND_ALL_Bits
           b.set()
           c.set()
         }
@@ -642,8 +643,10 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
     }
   }
 
+
   // io.done: all txn rlseDone; all txn loaded; set done only once
   when(rRlseDone.andR && io.cntTxnLd === io.txnNumTotal && ~io.done)(io.done.set())
+
 
   // io.cntClk & clear status reg
   val clkCnt = new StateMachine {

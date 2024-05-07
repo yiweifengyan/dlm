@@ -13,19 +13,47 @@ import hwsys.util.Helpers._
 class CMemHost(cmemAxiConf: Axi4Config) extends Component {
 
   val io = new CMemHostIO(cmemAxiConf)
-  
   val cntWrData, cntRdData, cntHostReq, cntHbmReq = Reg(UInt(64 bits)).init(0)
   val cmemRdAddr, cmemWrAddr, reqHostAddr = Reg(UInt(64 bits)).init(0)
+
+  val fsm = new StateMachine {
+    val IDLE = new State with EntryPoint
+    val RD, WR = new State
+
+    IDLE.whenIsActive {
+      when(io.mode(0) ^ io.mode(1))(goto(RD))
+      when(io.mode(0) & io.mode(1))(goto(WR))
+    }
+    // cleanup the status
+    IDLE.onExit {
+      reqHostAddr := io.hostAddr
+      cmemRdAddr := io.cmemAddr
+      cmemWrAddr := io.cmemAddr
+      List(cntRdData, cntWrData, cntHostReq, cntHbmReq, io.cntDone).foreach(_.clearAll())
+    }
+    // rd from host
+    RD.whenIsActive {
+      // io.mode.clearAll()
+      when(io.cntDone === io.cnt)(goto(IDLE))
+    }
+    // wr to host
+    WR.whenIsActive {
+      // io.mode.clearAll()
+      when(io.cntDone === io.cnt)(goto(IDLE))
+    }
+  }
 
   // req assignment
   val bpss_rd_req, bpss_wr_req = ReqT()
   List(bpss_rd_req, bpss_wr_req).foreach { e =>
     e.vaddr := reqHostAddr.resized
     e.len := io.len.resized
-    e.stream := False
+    e.stream := True
+    // e.stream := False
     e.sync := False
     e.ctl := True
-    e.host := True
+    e.host := False
+    // e.host := True
     e.dest := 0
     e.pid := io.pid
     e.vfid := 0
@@ -33,37 +61,25 @@ class CMemHost(cmemAxiConf: Axi4Config) extends Component {
   }
   io.hostd.bpss_rd_req.data.assignFromBits(bpss_rd_req.asBits)
   io.hostd.bpss_wr_req.data.assignFromBits(bpss_wr_req.asBits)
+  io.hostd.bpss_rd_req.valid := (cntHostReq =/= io.cnt) && fsm.isActive(fsm.RD)
+  io.hostd.bpss_wr_req.valid := (cntHostReq =/= io.cnt) && fsm.isActive(fsm.WR)
 
-
-  val fsm = new StateMachine {
-    val IDLE = new State with EntryPoint
-    val RD, WR = new State
-
-    IDLE.whenIsActive {
-      when(io.mode(0)) (goto(RD))
-      when(io.mode(1)) (goto(WR))
-      // cleanup the status
-      when(io.mode(0) || io.mode(1)) {
-        reqHostAddr := io.hostAddr
-        cmemRdAddr := io.cmemAddr
-        cmemWrAddr := io.cmemAddr
-        List(cntRdData, cntWrData, cntHostReq, cntHbmReq, io.cntDone).foreach(_.clearAll())
-      }
-    }
-
-    // rd from host
-    RD.whenIsActive {
-      when(io.cntDone === io.cnt) (goto(IDLE))
-    }
-
-
-    // wr to host
-    WR.whenIsActive {
-      when(io.cntDone === io.cnt) (goto(IDLE))
-    }
+  when(io.hostd.bpss_rd_req.fire || io.hostd.bpss_wr_req.fire) {
+    cntHostReq := cntHostReq + 1
+    reqHostAddr := reqHostAddr + io.len
   }
 
+  io.hostd.bpss_rd_done.freeRun()
+  io.hostd.bpss_wr_done.freeRun()
+//  io.hostd.bpss_rd_done.ready := True
+//  io.hostd.bpss_wr_done.ready := True
+  when(io.hostd.bpss_rd_done.fire || io.hostd.bpss_wr_done.fire)(io.cntDone := io.cntDone + 1)
+  when(io.hostd.axis_host_sink.fire)(cntRdData := cntRdData + 1)
+  when(io.hostd.axis_host_src.fire)(cntWrData := cntWrData + 1)
 
+  io.hostd.axis_host_src.tdest := 0
+  io.hostd.axis_host_src.tlast := False
+  io.hostd.axis_host_src.tkeep.setAll()
 
   // deft behavior of rd from host
   // axi_cmem wr
@@ -92,34 +108,13 @@ class CMemHost(cmemAxiConf: Axi4Config) extends Component {
   io.axi_cmem.r.valid <> io.hostd.axis_host_src.valid
   io.axi_cmem.r.ready <> io.hostd.axis_host_src.ready
 
-  io.hostd.axis_host_src.tdest := 0
-  io.hostd.axis_host_src.tlast := False
-  io.hostd.axis_host_src.tkeep.setAll()
-  
-  // inc cnt
-  when(io.axi_cmem.aw.fire || io.axi_cmem.ar.fire) (cntHbmReq := cntHbmReq + 1)
-  when(io.axi_cmem.aw.fire) (cmemWrAddr := cmemWrAddr + io.len)
-  when(io.axi_cmem.ar.fire) (cmemRdAddr := cmemRdAddr + io.len)
-
-  when(io.hostd.bpss_rd_req.fire || io.hostd.bpss_wr_req.fire) {
-    cntHostReq := cntHostReq + 1
-    reqHostAddr := reqHostAddr + io.len
-  }
-
   val cmemToReq = cntHbmReq =/= io.cnt
-  val hostToReq = cntHostReq =/= io.cnt
-
   io.axi_cmem.aw.valid := cmemToReq && fsm.isActive(fsm.RD)
   io.axi_cmem.ar.valid := cmemToReq && fsm.isActive(fsm.WR)
 
-  io.hostd.bpss_rd_req.valid := hostToReq && fsm.isActive(fsm.RD)
-  io.hostd.bpss_wr_req.valid := hostToReq && fsm.isActive(fsm.WR)
-
-  when(io.hostd.bpss_rd_done.fire || io.hostd.bpss_wr_done.fire)(io.cntDone := io.cntDone + 1)
-  when(io.hostd.axis_host_sink.fire) (cntRdData := cntRdData + 1)
-  when(io.hostd.axis_host_src.fire) {cntWrData := cntWrData + 1}
-
-  io.hostd.bpss_rd_done.ready := True
-  io.hostd.bpss_wr_done.ready := True
+  // inc cnt
+  when(io.axi_cmem.aw.fire || io.axi_cmem.ar.fire)(cntHbmReq := cntHbmReq + 1)
+  when(io.axi_cmem.aw.fire)(cmemWrAddr := cmemWrAddr + io.len)
+  when(io.axi_cmem.ar.fire)(cmemRdAddr := cmemRdAddr + io.len)
 
 }

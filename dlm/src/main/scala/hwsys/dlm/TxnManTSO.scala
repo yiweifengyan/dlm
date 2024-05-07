@@ -688,7 +688,7 @@ class TxnManTSO(conf: SysConfig) extends Component with RenameIO {
         for (e <- Seq(cntLkReqLoc, cntLkReqRmt, cntLkRespLocTab, cntLkRespLocMem, cntLkRespRmt,
           cntLkReqWrLoc, cntLkReqWrRmt, cntLkHoldWrLoc, cntLkHoldWrRmt, cntCmtReqLoc, cntCmtReqRmt, cntCmtRespLoc, cntCmtRespRmt,
           cntRlseReqWrLoc, cntRlseReqWrRmt,
-          cntTsRlseRdPush, cntTsRlseRdPop, cntTsRlseWrPush, cntTsRlseWrPop,
+          cntTsRlseRdPush, cntTsRlseRdPop, cntTsRlseWrPush, cntTsRlseWrPop
           // TODO: other status regs
         ))
           e(curTxnId) := U(0, conf.wMaxTxnLen bits) // why the clearAll() DOES NOT work?

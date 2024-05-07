@@ -20,7 +20,7 @@ trait SysConfig {
 
   val nTab: Int = 8 // MAX 8 tables
 
-  // derivative params
+  // derivative params - bit-width to represent the values.
   def wNId = log2Up(nNode)
   def wCId = log2Up(nCh)
   def wTId = log2Up(nLock)

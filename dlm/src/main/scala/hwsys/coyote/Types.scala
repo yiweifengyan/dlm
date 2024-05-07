@@ -31,6 +31,7 @@ case class BpssData(width: Int) extends Bundle {
   val tdata = Bits(width bits)
   val tdest = UInt(4 bits)
   val tkeep = Bits(width/8 bits) // will be renamed in RenameIO
+  // val tid   = UInt(6 bits)
   val tlast = Bool()
 }
 
@@ -229,14 +230,14 @@ class HostDataIO extends Bundle {
   val axis_host_sink = slave Stream BpssData(512)
   val axis_host_src = master Stream BpssData(512)
 
-  def tieOff(): Unit = {
-    bpss_rd_req.setIdle()
-    bpss_wr_req.setIdle()
-    bpss_rd_done.setBlocked()
-    bpss_wr_done.setBlocked()
-    axis_host_sink.setBlocked()
-    axis_host_src.setIdle()
-  }
+//  def tieOff(): Unit = {
+//    bpss_rd_req.setIdle()
+//    bpss_wr_req.setIdle()
+//    bpss_rd_done.setBlocked()
+//    bpss_wr_done.setBlocked()
+//    axis_host_sink.setBlocked()
+//    axis_host_src.setIdle()
+//  }
 
 }
 
@@ -259,7 +260,7 @@ class CMemHostIO(cmemAxiConf: Axi4Config) extends Bundle {
 
   def regMap(r: AxiLite4SlaveFactory, baseR: Int): Int = {
     implicit val baseReg = baseR
-    val rMode = r.rwInPort(mode,     r.getAddr(0), 0, "CMemHost: mode")
+    val rMode = r.rwInPort(mode, r.getAddr(0), 0, "CMemHost: mode")
     when(rMode.orR) (rMode.clearAll()) // auto clear
     r.rwInPort(hostAddr, r.getAddr(1), 0, "CMemHost: hostAddr")
     r.rwInPort(cmemAddr, r.getAddr(2), 0, "CMemHost: cmemAddr")

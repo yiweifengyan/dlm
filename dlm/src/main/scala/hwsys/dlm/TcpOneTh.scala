@@ -126,7 +126,7 @@ class TcpOneTh(implicit sysConf: SysConfig) extends Component with RenameIO {
 
   // tieOff unused memory ports
   io.axi_mem.foreach(_.setIdle())
-  io.hostd.tieOff()
+  // io.hostd.tieOff()
   io.rdma_1.tieOff()
 
   io.tcp_0.open_req.tieOff(false)

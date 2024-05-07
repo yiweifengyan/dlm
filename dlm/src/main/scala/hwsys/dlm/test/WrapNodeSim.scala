@@ -22,7 +22,7 @@ object WrapNodeSim extends App {
     override val nCh: Int = 1
     override val nTxnMan: Int = 1
     override val nLtPart: Int = 8
-    override val nLock: Int = (((1<<10)<<10)<<8)>>6
+    override val nLock: Int = (((1<<10)<<10)<<8)>>6 // 1 left shift 10+10+8 bits then right shift 6 bits. = 4194304
 }
 
   SimConfig.withWave.compile {

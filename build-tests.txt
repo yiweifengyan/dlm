@@ -1,0 +1,440 @@
+// import $ivy.`com.goyeau::mill-scalafix::0.2.8`
+// Added by Shien
+import ivy"com.goyeau::mill-scalafix:0.2.5"
+import com.goyeau.mill.scalafix.ScalafixModule
+import mill._, scalalib._, scalafmt._
+
+val spinalVersion = "1.7.3"
+val scalaTestVersion = "3.2.11"
+
+trait CommonSpinalModule extends ScalaModule with ScalafmtModule with ScalafixModule {
+  def scalaVersion = "2.12.16"
+  def scalacOptions = Seq("-unchecked", "-deprecation", "-feature")
+
+  def ivyDeps = Agg(
+    ivy"com.github.spinalhdl::spinalhdl-core:$spinalVersion",
+    ivy"com.github.spinalhdl::spinalhdl-lib:$spinalVersion",
+    ivy"com.github.spinalhdl::spinalhdl-sim:$spinalVersion",
+    ivy"com.lihaoyi::os-lib:0.8.0",
+    ivy"org.scala-stm::scala-stm:0.11.0",
+    )
+
+  def scalacPluginIvyDeps = Agg(ivy"com.github.spinalhdl::spinalhdl-idsl-plugin:$spinalVersion")
+  def scalafixIvyDeps = Agg(ivy"com.github.liancheng::organize-imports:0.6.0")
+}
+
+object dlm extends CommonSpinalModule {
+  object test extends Tests with TestModule.ScalaTest {
+    def ivyDeps = Agg(ivy"org.scalatest::scalatest:$scalaTestVersion")
+    def testFramework = "org.scalatest.tools.Framework"
+    def testSim(args: String*) = T.command {
+      super.runMain("org.scalatest.run", args: _*)
+    }
+  }
+}
+
+
+// Added by Shien
+// import ivy"com.goyeau::mill-scalafix:0.2.5"
+
+// convert the mill buld to sbt, not working
+// import mill.contrib.sbt._
+/*
+PS C:\Personal\Projects\dlm-master> ./mill.bat mill.contrib.sbt.publishLocal
+[build.sc] [13/53] resolvedRunIvyDeps | Downloading [2/2] artifacts (~0/0 bytes)
+1 targets failed
+resolvedRunIvyDeps
+Resolution failed for 1 modules:
+--------------------------------------------
+  com.goyeau:mill-scalafix_mill0.11_2.13:0.2.8 
+        not found: C:\Users\Shaun\.ivy2\local\com.goyeau\mill-scalafix_mill0.11_2.13\0.2.8\ivys\ivy.xml
+        not found: https://repo1.maven.org/maven2/com/goyeau/mill-scalafix_mill0.11_2.13/0.2.8/mill-scalafix_mill0.11_2.13-0.2.8.pom
+
+--------------------------------------------
+
+For additional information on library dependencies, see the docs at
+https://mill-build.com/mill/Library_Dependencies.html
+
+
+PS C:\Personal\Projects\dlm-master> ./mill.bat dlm.test.testSim hwsys.dlm.MultiNodeTest
+[build.sc] [49/53] compile 
+[info] compiling 1 Scala source to C:\Personal\Projects\dlm-master\out\mill-build\compile.dest\classes ...
+[error] C:\Personal\Projects\dlm-master\build.sc:29:13: value runMain is not a member of mill.define.Module.BaseClass with mill.scalalib.TestModule.ScalaTest
+[error]       super.runMain("org.scalatest.run", args: _*)
+[error]             ^
+[error] one error found
+1 targets failed
+compile Compilation failed
+
+
+PS C:\Personal\Projects\dlm-master> ./mill.bat dlm.test.testSim hwsys.dlm.MultiNodeTest
+[build.sc] [49/53] compile 
+[info] compiling 1 Scala source to C:\Personal\Projects\dlm-master\out\mill-build\compile.dest\classes ...
+[error] C:/Personal/Projects/dlm-master/out/mill-build/generateScriptSources.dest/millbuild/build.sc:46:10: object creation impossible.
+[error] Missing implementations for 7 members of trait TestModule.
+[error]   def compile: mill.T[mill.scalalib.api.CompilationResult] = ???
+[error]   def forkArgs: mill.T[Seq[String]] = ???
+[error]   def forkEnv: mill.T[Map[String,String]] = ???
+[error]   def forkWorkingDir: mill.T[os.Path] = ???
+[error]   def runClasspath: mill.T[Seq[mill.api.PathRef]] = ???
+[error]   def runUseArgsFile: mill.T[Boolean] = ???
+[error]   def zincWorker: mill.define.ModuleRef[mill.scalalib.ZincWorkerModule] = ???
+[error]   object test extends TestModule.ScalaTest {
+[error]          ^
+[error] one error found
+1 targets failed
+compile Compilation failed
+PS C:\Personal\Projects\dlm-master> 
+*/
+
+
+
+
+
+PS C:\Personal\Projects\dlm-master> ./mill.bat clean
+[1/1] clean 
+PS C:\Personal\Projects\dlm-master> ./mill.bat dlm.runMain hwsys.dlm.SysCoyote1T2N1C8PGen
+[39/46] dlm.compile 
+[info] compiling 43 Scala sources to C:\Personal\Projects\dlm-master\out\dlm\compile.dest\classes ...
+[error] ## Exception when compiling 43 sources to C:\Personal\Projects\dlm-master\out\dlm\compile.dest\classes
+[error] scala.reflect.internal.FatalError: Error accessing C:\Users\Shaun\AppData\Local\Coursier\cache\v1\https\repo1.maven.org\maven2\org\scalactic\scalactic_2.12\3.2.5\scalactic_2.12-3.2.5.jar
+[error] scala.tools.nsc.classpath.AggregateClassPath.$anonfun$list$3(AggregateClassPath.scala:113)
+[error] scala.collection.Iterator.foreach(Iterator.scala:943)
+[error] scala.collection.Iterator.foreach$(Iterator.scala:943)
+[error] scala.collection.AbstractIterator.foreach(Iterator.scala:1431)
+[error] scala.collection.IterableLike.foreach(IterableLike.scala:74)
+[error] scala.collection.IterableLike.foreach$(IterableLike.scala:73)
+[error] scala.collection.AbstractIterable.foreach(Iterable.scala:56)
+[error] scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:101)
+[error] scala.tools.nsc.util.ClassPath.list(ClassPath.scala:36)
+[error] scala.tools.nsc.util.ClassPath.list$(ClassPath.scala:36)
+[error] scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:30)
+[error] scala.tools.nsc.symtab.SymbolLoaders$PackageLoader.doComplete(SymbolLoaders.scala:298)
+[error] scala.tools.nsc.symtab.SymbolLoaders$SymbolLoader.complete(SymbolLoaders.scala:250)
+[error] scala.reflect.internal.Symbols$Symbol.completeInfo(Symbols.scala:1542)
+[error] scala.reflect.internal.Symbols$Symbol.info(Symbols.scala:1514)
+[error] scala.reflect.internal.Mirrors$RootsBase.init(Mirrors.scala:258)
+[error] scala.tools.nsc.Global.rootMirror$lzycompute(Global.scala:75)
+[error] scala.tools.nsc.Global.rootMirror(Global.scala:73)
+[error] scala.tools.nsc.Global.rootMirror(Global.scala:45)
+[error] scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass$lzycompute(Definitions.scala:294)
+[error] scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass(Definitions.scala:294)
+[error] scala.reflect.internal.Definitions$DefinitionsClass.init(Definitions.scala:1504)
+[error] scala.tools.nsc.Global$Run.<init>(Global.scala:1214)
+[error] xsbt.ZincCompiler$ZincRun.<init>(CallbackGlobal.scala:80)
+[error] xsbt.CachedCompiler0.run(CompilerBridge.scala:161)
+[error] xsbt.CachedCompiler0.run(CompilerBridge.scala:134)
+[error] xsbt.CompilerBridge.run(CompilerBridge.scala:39)
+[error] sbt.internal.inc.AnalyzingCompiler.compile(AnalyzingCompiler.scala:91)
+[error] sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$7(MixedAnalyzingCompiler.scala:193)
+[error] scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+[error] sbt.internal.inc.MixedAnalyzingCompiler.timed(MixedAnalyzingCompiler.scala:248)
+[error] sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4(MixedAnalyzingCompiler.scala:183)
+[error] sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4$adapted(MixedAnalyzingCompiler.scala:163)
+[error] sbt.internal.inc.JarUtils$.withPreviousJar(JarUtils.scala:239)
+[error] sbt.internal.inc.MixedAnalyzingCompiler.compileScala$1(MixedAnalyzingCompiler.scala:163)
+[error] sbt.internal.inc.MixedAnalyzingCompiler.compile(MixedAnalyzingCompiler.scala:211)
+[error] sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1(IncrementalCompilerImpl.scala:534)
+[error] sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1$adapted(IncrementalCompilerImpl.scala:534)
+[error] sbt.internal.inc.Incremental$.$anonfun$apply$5(Incremental.scala:180)
+[error] sbt.internal.inc.Incremental$.$anonfun$apply$5$adapted(Incremental.scala:178)
+[error] sbt.internal.inc.Incremental$$anon$2.run(Incremental.scala:464)
+[error] sbt.internal.inc.IncrementalCommon$CycleState.next(IncrementalCommon.scala:116)
+[error] sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:56)
+[error] sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:52)
+[error] sbt.internal.inc.IncrementalCommon.cycle(IncrementalCommon.scala:263)
+[error] sbt.internal.inc.Incremental$.$anonfun$incrementalCompile$8(Incremental.scala:419)
+[error] sbt.internal.inc.Incremental$.withClassfileManager(Incremental.scala:506)
+[error] sbt.internal.inc.Incremental$.incrementalCompile(Incremental.scala:406)
+[error] sbt.internal.inc.Incremental$.apply(Incremental.scala:172)
+[error] sbt.internal.inc.IncrementalCompilerImpl.compileInternal(IncrementalCompilerImpl.scala:534)
+[error] sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileIncrementally$1(IncrementalCompilerImpl.scala:488)
+[error] sbt.internal.inc.IncrementalCompilerImpl.handleCompilationError(IncrementalCompilerImpl.scala:332)
+[error] sbt.internal.inc.IncrementalCompilerImpl.compileIncrementally(IncrementalCompilerImpl.scala:425)
+[error] sbt.internal.inc.IncrementalCompilerImpl.compile(IncrementalCompilerImpl.scala:137)
+[error] mill.scalalib.worker.ZincWorkerImpl.compileInternal(ZincWorkerImpl.scala:540)
+[error] mill.scalalib.worker.ZincWorkerImpl.$anonfun$compileMixed$1(ZincWorkerImpl.scala:333)
+[error] mill.api.FixSizedCache.withCachedValue(FixSizedCache.scala:66)
+[error] mill.scalalib.worker.ZincWorkerImpl.withCompilers(ZincWorkerImpl.scala:413)
+[error] mill.scalalib.worker.ZincWorkerImpl.compileMixed(ZincWorkerImpl.scala:332)
+[error] mill.scalalib.ScalaModule.$anonfun$compile$2(ScalaModule.scala:210)
+[error] mill.define.Task$TraverseCtx.evaluate(Task.scala:71)
+[error] mill.eval.GroupEvaluator.$anonfun$evaluateGroup$11(GroupEvaluator.scala:326)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] scala.Console$.withErr(Console.scala:193)
+[error] mill.api.SystemStreams$.$anonfun$withStreams$2(SystemStreams.scala:62)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] scala.Console$.withOut(Console.scala:164)
+[error] mill.api.SystemStreams$.$anonfun$withStreams$1(SystemStreams.scala:61)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] scala.Console$.withIn(Console.scala:227)
+[error] mill.api.SystemStreams$.withStreams(SystemStreams.scala:60)
+[error] mill.eval.GroupEvaluator.$anonfun$evaluateGroup$8(GroupEvaluator.scala:326)
+[error] mill.eval.GroupEvaluator.$anonfun$evaluateGroup$8$adapted(GroupEvaluator.scala:295)
+[error] scala.collection.immutable.Vector.foreach(Vector.scala:2124)
+[error] mill.eval.GroupEvaluator.computeAll$1(GroupEvaluator.scala:295)
+[error] mill.eval.GroupEvaluator.evaluateGroup(GroupEvaluator.scala:350)
+[error] mill.eval.GroupEvaluator.$anonfun$evaluateGroupCached$20(GroupEvaluator.scala:217)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] mill.eval.GroupEvaluator.evaluateGroupCached(GroupEvaluator.scala:208)
+[error] mill.eval.GroupEvaluator.evaluateGroupCached$(GroupEvaluator.scala:45)
+[error] mill.eval.EvaluatorImpl.evaluateGroupCached(EvaluatorImpl.scala:15)
+[error] mill.eval.EvaluatorCore.$anonfun$evaluate0$2(EvaluatorCore.scala:116)
+[error] scala.concurrent.impl.Promise$Transformation.run(Promise.scala:467)
+[error] mill.eval.ExecutionContexts$RunNow$.execute(ExecutionContexts.scala:13)
+[error] scala.concurrent.impl.Promise$Transformation.submitWithValue(Promise.scala:429)
+[error] scala.concurrent.impl.Promise$DefaultPromise.submitWithValue(Promise.scala:338)
+[error] scala.concurrent.impl.Promise$DefaultPromise.dispatchOrAddCallbacks(Promise.scala:312)
+[error] scala.concurrent.impl.Promise$DefaultPromise.map(Promise.scala:182)
+[error] mill.eval.EvaluatorCore.$anonfun$evaluate0$1(EvaluatorCore.scala:92)
+[error] mill.eval.EvaluatorCore.$anonfun$evaluate0$1$adapted(EvaluatorCore.scala:90)
+[error] scala.collection.immutable.Vector.foreach(Vector.scala:2124)
+[error] mill.eval.EvaluatorCore.evaluate0(EvaluatorCore.scala:90)
+[error] mill.eval.EvaluatorCore.$anonfun$evaluate$1(EvaluatorCore.scala:43)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] mill.eval.EvaluatorCore.evaluate(EvaluatorCore.scala:34)
+[error] mill.eval.EvaluatorCore.evaluate$(EvaluatorCore.scala:26)
+[error] mill.eval.EvaluatorImpl.evaluate(EvaluatorImpl.scala:15)
+[error] mill.main.RunScript$.evaluateNamed(RunScript.scala:38)
+[error] mill.main.RunScript$.$anonfun$evaluateTasksNamed$2(RunScript.scala:26)
+[error] scala.util.Either.map(Either.scala:382)
+[error] mill.main.RunScript$.evaluateTasksNamed(RunScript.scala:26)
+[error] mill.runner.MillBuildBootstrap$.evaluateWithWatches(MillBuildBootstrap.scala:399)
+[error] mill.runner.MillBuildBootstrap.$anonfun$processFinalTargets$3(MillBuildBootstrap.scala:308)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] mill.runner.MillBuildBootstrap.processFinalTargets(MillBuildBootstrap.scala:308)
+[error] mill.runner.MillBuildBootstrap.evaluateRec(MillBuildBootstrap.scala:196)
+[error] mill.runner.MillBuildBootstrap.evaluate(MillBuildBootstrap.scala:48)
+[error] mill.runner.MillMain$.$anonfun$main0$6(MillMain.scala:234)
+[error] mill.runner.Watching$.watchLoop(Watching.scala:27)
+[error] mill.runner.MillMain$.$anonfun$main0$1(MillMain.scala:219)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] scala.Console$.withErr(Console.scala:193)
+[error] mill.api.SystemStreams$.$anonfun$withStreams$2(SystemStreams.scala:62)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] scala.Console$.withOut(Console.scala:164)
+[error] mill.api.SystemStreams$.$anonfun$withStreams$1(SystemStreams.scala:61)
+[error] scala.util.DynamicVariable.withValue(DynamicVariable.scala:59)
+[error] scala.Console$.withIn(Console.scala:227)
+[error] mill.api.SystemStreams$.withStreams(SystemStreams.scala:60)
+[error] mill.runner.MillMain$.main0(MillMain.scala:101)
+[error] mill.runner.MillServerMain$.main0(MillServerMain.scala:83)
+[error] mill.runner.MillServerMain$.main0(MillServerMain.scala:35)
+[error] mill.runner.Server.$anonfun$handleRun$1(MillServerMain.scala:187)
+[error] java.base/java.lang.Thread.run(Thread.java:829)
+[error]
+1 targets failed
+dlm.compile scala.reflect.internal.FatalError: Error accessing C:\Users\Shaun\AppData\Local\Coursier\cache\v1\https\repo1.maven.org\maven2\org\scalactic\scalactic_2.12\3.2.5\scalactic_2.12-3.2.5.jar
+    scala.tools.nsc.classpath.AggregateClassPath.$anonfun$list$3(AggregateClassPath.scala:113)
+    scala.collection.Iterator.foreach(Iterator.scala:943)
+    scala.collection.Iterator.foreach$(Iterator.scala:943)
+    scala.collection.AbstractIterator.foreach(Iterator.scala:1431)
+    scala.collection.IterableLike.foreach(IterableLike.scala:74)
+    scala.collection.IterableLike.foreach$(IterableLike.scala:73)
+    scala.collection.AbstractIterable.foreach(Iterable.scala:56)
+    scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:101)
+    scala.tools.nsc.util.ClassPath.list(ClassPath.scala:36)
+    scala.tools.nsc.util.ClassPath.list$(ClassPath.scala:36)
+    scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:30)
+    scala.tools.nsc.symtab.SymbolLoaders$PackageLoader.doComplete(SymbolLoaders.scala:298)
+    scala.tools.nsc.symtab.SymbolLoaders$SymbolLoader.complete(SymbolLoaders.scala:250)
+    scala.reflect.internal.Symbols$Symbol.completeInfo(Symbols.scala:1542)
+    scala.reflect.internal.Symbols$Symbol.info(Symbols.scala:1514)
+    scala.reflect.internal.Mirrors$RootsBase.init(Mirrors.scala:258)
+    scala.tools.nsc.Global.rootMirror$lzycompute(Global.scala:75)
+    scala.tools.nsc.Global.rootMirror(Global.scala:73)
+    scala.tools.nsc.Global.rootMirror(Global.scala:45)
+    scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass$lzycompute(Definitions.scala:294)
+    scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass(Definitions.scala:294)
+    scala.reflect.internal.Definitions$DefinitionsClass.init(Definitions.scala:1504)
+    scala.tools.nsc.Global$Run.<init>(Global.scala:1214)
+    xsbt.ZincCompiler$ZincRun.<init>(CallbackGlobal.scala:80)
+    xsbt.CachedCompiler0.run(CompilerBridge.scala:161)
+    xsbt.CachedCompiler0.run(CompilerBridge.scala:134)
+    xsbt.CompilerBridge.run(CompilerBridge.scala:39)
+    sbt.internal.inc.AnalyzingCompiler.compile(AnalyzingCompiler.scala:91)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$7(MixedAnalyzingCompiler.scala:193)
+    scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+    sbt.internal.inc.MixedAnalyzingCompiler.timed(MixedAnalyzingCompiler.scala:248)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4(MixedAnalyzingCompiler.scala:183)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4$adapted(MixedAnalyzingCompiler.scala:163)
+    sbt.internal.inc.JarUtils$.withPreviousJar(JarUtils.scala:239)
+    sbt.internal.inc.MixedAnalyzingCompiler.compileScala$1(MixedAnalyzingCompiler.scala:163)
+    sbt.internal.inc.MixedAnalyzingCompiler.compile(MixedAnalyzingCompiler.scala:211)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1$adapted(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.Incremental$.$anonfun$apply$5(Incremental.scala:180)
+    sbt.internal.inc.Incremental$.$anonfun$apply$5$adapted(Incremental.scala:178)
+    sbt.internal.inc.Incremental$$anon$2.run(Incremental.scala:464)
+    sbt.internal.inc.IncrementalCommon$CycleState.next(IncrementalCommon.scala:116)
+    sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:56)
+    sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:52)
+    sbt.internal.inc.IncrementalCommon.cycle(IncrementalCommon.scala:263)
+    sbt.internal.inc.Incremental$.$anonfun$incrementalCompile$8(Incremental.scala:419)
+    sbt.internal.inc.Incremental$.withClassfileManager(Incremental.scala:506)
+    sbt.internal.inc.Incremental$.incrementalCompile(Incremental.scala:406)
+    sbt.internal.inc.Incremental$.apply(Incremental.scala:172)
+    sbt.internal.inc.IncrementalCompilerImpl.compileInternal(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileIncrementally$1(IncrementalCompilerImpl.scala:488)
+    sbt.internal.inc.IncrementalCompilerImpl.handleCompilationError(IncrementalCompilerImpl.scala:332)
+    sbt.internal.inc.IncrementalCompilerImpl.compileIncrementally(IncrementalCompilerImpl.scala:425)
+    sbt.internal.inc.IncrementalCompilerImpl.compile(IncrementalCompilerImpl.scala:137)
+    mill.scalalib.worker.ZincWorkerImpl.compileInternal(ZincWorkerImpl.scala:540)
+    mill.scalalib.worker.ZincWorkerImpl.$anonfun$compileMixed$1(ZincWorkerImpl.scala:333)
+    mill.api.FixSizedCache.withCachedValue(FixSizedCache.scala:66)
+    mill.scalalib.worker.ZincWorkerImpl.withCompilers(ZincWorkerImpl.scala:413)
+    mill.scalalib.worker.ZincWorkerImpl.compileMixed(ZincWorkerImpl.scala:332)
+    mill.scalalib.ScalaModule.$anonfun$compile$2(ScalaModule.scala:210)
+    mill.define.Task$TraverseCtx.evaluate(Task.scala:71)
+java.io.IOException: Error accessing C:\Users\Shaun\AppData\Local\Coursier\cache\v1\https\repo1.maven.org\maven2\org\scalactic\scalactic_2.12\3.2.5\scalactic_2.12-3.2.5.jar
+    scala.reflect.io.FileZipArchive.scala$reflect$io$FileZipArchive$$openZipFile(ZipArchive.scala:190)
+    scala.reflect.io.FileZipArchive.root$lzycompute(ZipArchive.scala:238)
+    scala.reflect.io.FileZipArchive.root(ZipArchive.scala:235)
+    scala.reflect.io.FileZipArchive.allDirs$lzycompute(ZipArchive.scala:272)
+    scala.reflect.io.FileZipArchive.allDirs(ZipArchive.scala:272)
+    scala.tools.nsc.classpath.ZipArchiveFileLookup.findDirEntry(ZipArchiveFileLookup.scala:76)
+    scala.tools.nsc.classpath.ZipArchiveFileLookup.list(ZipArchiveFileLookup.scala:63)
+    scala.tools.nsc.classpath.ZipArchiveFileLookup.list$(ZipArchiveFileLookup.scala:62)
+    scala.tools.nsc.classpath.ZipAndJarClassPathFactory$ZipArchiveClassPath.list(ZipAndJarFileLookupFactory.scala:58)
+    scala.tools.nsc.classpath.AggregateClassPath.$anonfun$list$3(AggregateClassPath.scala:105)
+    scala.collection.Iterator.foreach(Iterator.scala:943)
+    scala.collection.Iterator.foreach$(Iterator.scala:943)
+    scala.collection.AbstractIterator.foreach(Iterator.scala:1431)
+    scala.collection.IterableLike.foreach(IterableLike.scala:74)
+    scala.collection.IterableLike.foreach$(IterableLike.scala:73)
+    scala.collection.AbstractIterable.foreach(Iterable.scala:56)
+    scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:101)
+    scala.tools.nsc.util.ClassPath.list(ClassPath.scala:36)
+    scala.tools.nsc.util.ClassPath.list$(ClassPath.scala:36)
+    scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:30)
+    scala.tools.nsc.symtab.SymbolLoaders$PackageLoader.doComplete(SymbolLoaders.scala:298)
+    scala.tools.nsc.symtab.SymbolLoaders$SymbolLoader.complete(SymbolLoaders.scala:250)
+    scala.reflect.internal.Symbols$Symbol.completeInfo(Symbols.scala:1542)
+    scala.reflect.internal.Symbols$Symbol.info(Symbols.scala:1514)
+    scala.reflect.internal.Mirrors$RootsBase.init(Mirrors.scala:258)
+    scala.tools.nsc.Global.rootMirror$lzycompute(Global.scala:75)
+    scala.tools.nsc.Global.rootMirror(Global.scala:73)
+    scala.tools.nsc.Global.rootMirror(Global.scala:45)
+    scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass$lzycompute(Definitions.scala:294)
+    scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass(Definitions.scala:294)
+    scala.reflect.internal.Definitions$DefinitionsClass.init(Definitions.scala:1504)
+    scala.tools.nsc.Global$Run.<init>(Global.scala:1214)
+    xsbt.ZincCompiler$ZincRun.<init>(CallbackGlobal.scala:80)
+    xsbt.CachedCompiler0.run(CompilerBridge.scala:161)
+    xsbt.CachedCompiler0.run(CompilerBridge.scala:134)
+    xsbt.CompilerBridge.run(CompilerBridge.scala:39)
+    sbt.internal.inc.AnalyzingCompiler.compile(AnalyzingCompiler.scala:91)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$7(MixedAnalyzingCompiler.scala:193)
+    scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+    sbt.internal.inc.MixedAnalyzingCompiler.timed(MixedAnalyzingCompiler.scala:248)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4(MixedAnalyzingCompiler.scala:183)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4$adapted(MixedAnalyzingCompiler.scala:163)
+    sbt.internal.inc.JarUtils$.withPreviousJar(JarUtils.scala:239)
+    sbt.internal.inc.MixedAnalyzingCompiler.compileScala$1(MixedAnalyzingCompiler.scala:163)
+    sbt.internal.inc.MixedAnalyzingCompiler.compile(MixedAnalyzingCompiler.scala:211)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1$adapted(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.Incremental$.$anonfun$apply$5(Incremental.scala:180)
+    sbt.internal.inc.Incremental$.$anonfun$apply$5$adapted(Incremental.scala:178)
+    sbt.internal.inc.Incremental$$anon$2.run(Incremental.scala:464)
+    sbt.internal.inc.IncrementalCommon$CycleState.next(IncrementalCommon.scala:116)
+    sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:56)
+    sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:52)
+    sbt.internal.inc.IncrementalCommon.cycle(IncrementalCommon.scala:263)
+    sbt.internal.inc.Incremental$.$anonfun$incrementalCompile$8(Incremental.scala:419)
+    sbt.internal.inc.Incremental$.withClassfileManager(Incremental.scala:506)
+    sbt.internal.inc.Incremental$.incrementalCompile(Incremental.scala:406)
+    sbt.internal.inc.Incremental$.apply(Incremental.scala:172)
+    sbt.internal.inc.IncrementalCompilerImpl.compileInternal(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileIncrementally$1(IncrementalCompilerImpl.scala:488)
+    sbt.internal.inc.IncrementalCompilerImpl.handleCompilationError(IncrementalCompilerImpl.scala:332)
+    sbt.internal.inc.IncrementalCompilerImpl.compileIncrementally(IncrementalCompilerImpl.scala:425)
+    sbt.internal.inc.IncrementalCompilerImpl.compile(IncrementalCompilerImpl.scala:137)
+    mill.scalalib.worker.ZincWorkerImpl.compileInternal(ZincWorkerImpl.scala:540)
+    mill.scalalib.worker.ZincWorkerImpl.$anonfun$compileMixed$1(ZincWorkerImpl.scala:333)
+    mill.api.FixSizedCache.withCachedValue(FixSizedCache.scala:66)
+    mill.scalalib.worker.ZincWorkerImpl.withCompilers(ZincWorkerImpl.scala:413)
+    mill.scalalib.worker.ZincWorkerImpl.compileMixed(ZincWorkerImpl.scala:332)
+    mill.scalalib.ScalaModule.$anonfun$compile$2(ScalaModule.scala:210)
+    mill.define.Task$TraverseCtx.evaluate(Task.scala:71)
+java.util.zip.ZipException: Invalid CEN header (invalid extra data field size for tag: 0xbdbf at 2399)
+    java.base/java.util.zip.ZipFile$Source.zerror(ZipFile.java:1769)
+    java.base/java.util.zip.ZipFile$Source.checkExtraFields(ZipFile.java:1274)
+    java.base/java.util.zip.ZipFile$Source.initCEN(ZipFile.java:1734)
+    java.base/java.util.zip.ZipFile$Source.<init>(ZipFile.java:1463)
+    java.base/java.util.zip.ZipFile$Source.get(ZipFile.java:1426)
+    java.base/java.util.zip.ZipFile$CleanableResource.<init>(ZipFile.java:742)
+    java.base/java.util.zip.ZipFile$CleanableResource.get(ZipFile.java:859)
+    java.base/java.util.zip.ZipFile.<init>(ZipFile.java:257)
+    java.base/java.util.zip.ZipFile.<init>(ZipFile.java:186)
+    java.base/java.util.zip.ZipFile.<init>(ZipFile.java:200)
+    scala.reflect.io.FileZipArchive.scala$reflect$io$FileZipArchive$$openZipFile(ZipArchive.scala:187)
+    scala.reflect.io.FileZipArchive.root$lzycompute(ZipArchive.scala:238)
+    scala.reflect.io.FileZipArchive.root(ZipArchive.scala:235)
+    scala.reflect.io.FileZipArchive.allDirs$lzycompute(ZipArchive.scala:272)
+    scala.reflect.io.FileZipArchive.allDirs(ZipArchive.scala:272)
+    scala.tools.nsc.classpath.ZipArchiveFileLookup.findDirEntry(ZipArchiveFileLookup.scala:76)
+    scala.tools.nsc.classpath.ZipArchiveFileLookup.list(ZipArchiveFileLookup.scala:63)
+    scala.tools.nsc.classpath.ZipArchiveFileLookup.list$(ZipArchiveFileLookup.scala:62)
+    scala.tools.nsc.classpath.ZipAndJarClassPathFactory$ZipArchiveClassPath.list(ZipAndJarFileLookupFactory.scala:58)
+    scala.tools.nsc.classpath.AggregateClassPath.$anonfun$list$3(AggregateClassPath.scala:105)
+    scala.collection.Iterator.foreach(Iterator.scala:943)
+    scala.collection.Iterator.foreach$(Iterator.scala:943)
+    scala.collection.AbstractIterator.foreach(Iterator.scala:1431)
+    scala.collection.IterableLike.foreach(IterableLike.scala:74)
+    scala.collection.IterableLike.foreach$(IterableLike.scala:73)
+    scala.collection.AbstractIterable.foreach(Iterable.scala:56)
+    scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:101)
+    scala.tools.nsc.util.ClassPath.list(ClassPath.scala:36)
+    scala.tools.nsc.util.ClassPath.list$(ClassPath.scala:36)
+    scala.tools.nsc.classpath.AggregateClassPath.list(AggregateClassPath.scala:30)
+    scala.tools.nsc.symtab.SymbolLoaders$PackageLoader.doComplete(SymbolLoaders.scala:298)
+    scala.tools.nsc.symtab.SymbolLoaders$SymbolLoader.complete(SymbolLoaders.scala:250)
+    scala.reflect.internal.Symbols$Symbol.completeInfo(Symbols.scala:1542)
+    scala.reflect.internal.Symbols$Symbol.info(Symbols.scala:1514)
+    scala.reflect.internal.Mirrors$RootsBase.init(Mirrors.scala:258)
+    scala.tools.nsc.Global.rootMirror$lzycompute(Global.scala:75)
+    scala.tools.nsc.Global.rootMirror(Global.scala:73)
+    scala.tools.nsc.Global.rootMirror(Global.scala:45)
+    scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass$lzycompute(Definitions.scala:294)
+    scala.reflect.internal.Definitions$DefinitionsClass.ObjectClass(Definitions.scala:294)
+    scala.reflect.internal.Definitions$DefinitionsClass.init(Definitions.scala:1504)
+    scala.tools.nsc.Global$Run.<init>(Global.scala:1214)
+    xsbt.ZincCompiler$ZincRun.<init>(CallbackGlobal.scala:80)
+    xsbt.CachedCompiler0.run(CompilerBridge.scala:161)
+    xsbt.CachedCompiler0.run(CompilerBridge.scala:134)
+    xsbt.CompilerBridge.run(CompilerBridge.scala:39)
+    sbt.internal.inc.AnalyzingCompiler.compile(AnalyzingCompiler.scala:91)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$7(MixedAnalyzingCompiler.scala:193)
+    scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.scala:18)
+    sbt.internal.inc.MixedAnalyzingCompiler.timed(MixedAnalyzingCompiler.scala:248)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4(MixedAnalyzingCompiler.scala:183)
+    sbt.internal.inc.MixedAnalyzingCompiler.$anonfun$compile$4$adapted(MixedAnalyzingCompiler.scala:163)
+    sbt.internal.inc.JarUtils$.withPreviousJar(JarUtils.scala:239)
+    sbt.internal.inc.MixedAnalyzingCompiler.compileScala$1(MixedAnalyzingCompiler.scala:163)
+    sbt.internal.inc.MixedAnalyzingCompiler.compile(MixedAnalyzingCompiler.scala:211)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileInternal$1$adapted(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.Incremental$.$anonfun$apply$5(Incremental.scala:180)
+    sbt.internal.inc.Incremental$.$anonfun$apply$5$adapted(Incremental.scala:178)
+    sbt.internal.inc.Incremental$$anon$2.run(Incremental.scala:464)
+    sbt.internal.inc.IncrementalCommon$CycleState.next(IncrementalCommon.scala:116)
+    sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:56)
+    sbt.internal.inc.IncrementalCommon$$anon$1.next(IncrementalCommon.scala:52)
+    sbt.internal.inc.IncrementalCommon.cycle(IncrementalCommon.scala:263)
+    sbt.internal.inc.Incremental$.$anonfun$incrementalCompile$8(Incremental.scala:419)
+    sbt.internal.inc.Incremental$.withClassfileManager(Incremental.scala:506)
+    sbt.internal.inc.Incremental$.incrementalCompile(Incremental.scala:406)
+    sbt.internal.inc.Incremental$.apply(Incremental.scala:172)
+    sbt.internal.inc.IncrementalCompilerImpl.compileInternal(IncrementalCompilerImpl.scala:534)
+    sbt.internal.inc.IncrementalCompilerImpl.$anonfun$compileIncrementally$1(IncrementalCompilerImpl.scala:488)
+    sbt.internal.inc.IncrementalCompilerImpl.handleCompilationError(IncrementalCompilerImpl.scala:332)
+    sbt.internal.inc.IncrementalCompilerImpl.compileIncrementally(IncrementalCompilerImpl.scala:425)
+    sbt.internal.inc.IncrementalCompilerImpl.compile(IncrementalCompilerImpl.scala:137)
+    mill.scalalib.worker.ZincWorkerImpl.compileInternal(ZincWorkerImpl.scala:540)
+    mill.scalalib.worker.ZincWorkerImpl.$anonfun$compileMixed$1(ZincWorkerImpl.scala:333)
+    mill.api.FixSizedCache.withCachedValue(FixSizedCache.scala:66)
+    mill.scalalib.worker.ZincWorkerImpl.withCompilers(ZincWorkerImpl.scala:413)
+    mill.scalalib.worker.ZincWorkerImpl.compileMixed(ZincWorkerImpl.scala:332)
+    mill.scalalib.ScalaModule.$anonfun$compile$2(ScalaModule.scala:210)
+    mill.define.Task$TraverseCtx.evaluate(Task.scala:71)

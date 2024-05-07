@@ -27,7 +27,7 @@ case class WrapRdmaFlow() extends Component with RenameIO {
     val rdma_0 = new RdmaIO
   }
 
-  io.hostd.tieOff()
+ // io.hostd.tieOff()
 
   val q_sink = Stream(Bits(512 bits))
   val q_src = Stream(Bits(512 bits))
