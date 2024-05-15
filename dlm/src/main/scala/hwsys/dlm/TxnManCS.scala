@@ -45,7 +45,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
    */
   val compLkReq = new StateMachine {
     val CS_TXN = new State with EntryPoint
-    val RD_TXN_HD, RD_TXN = new State
+    val RD_TXN = new State
 
     val curTxnId = Reg(UInt(conf.wTxnId bits)).init(0)
 
@@ -93,8 +93,14 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
       when(lkReqFire) {
         reqIdx := reqIdx + 1
         switch(isLocal) {
-          is(True)(cntLkReqLoc(curTxnId) := cntLkReqLoc(curTxnId) + 1)
-          is(False)(cntLkReqRmt(curTxnId) := cntLkReqRmt(curTxnId) + 1)
+          is(True){
+            cntLkReqLoc(curTxnId) := cntLkReqLoc(curTxnId) + 1
+            io.cntLockLoc := io.cntLockLoc + 1
+          }
+          is(False){
+            cntLkReqRmt(curTxnId) := cntLkReqRmt(curTxnId) + 1
+            io.cntLockRmt := io.cntLockRmt + 1
+          }
         }
         // req wr lock
         when((txnMemRd.lkType === LkT.wr) || (txnMemRd.lkType === LkT.raw)) {
@@ -193,6 +199,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
             // FIXME: rAbort set conflict
             rAbort(curTxnId) := True
             cntLkRespLoc(curTxnId) := cntLkRespLoc(curTxnId) + 1
+            io.cntLockDenyLoc := io.cntLockDenyLoc + 1
           }
 
           is(LockRespType.release) {
@@ -285,6 +292,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
             // FIXME: rAbort set conflict
             rAbort(curTxnId) := True
             cntLkRespRmt(curTxnId) := cntLkRespRmt(curTxnId) + 1
+            io.cntLockDenyRmt := io.cntLockDenyRmt + 1
           }
 
           is(LockRespType.release) {
@@ -583,6 +591,20 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
     val cntTxnWordInLine = Counter(8, rTxnMemLd)
     val cntTxnWord = Counter(conf.wMaxTxnLen bits, rTxnMemLd)
 
+    val bitsBuff = cmdAxiDataSlice(cntTxnWordInLine).asBits
+    val txnBuff = bitsBuff(conf.shiftNodeID, conf.wNId bits) ##
+      bitsBuff(conf.shiftChannel, conf.wCId bits) ##
+      bitsBuff(conf.shiftTID, conf.wTId bits) ##
+      bitsBuff(conf.shiftTable, conf.wTabId bits) ##
+      bitsBuff(conf.shiftLkType, conf.wLkType bits) ##
+      bitsBuff(conf.shiftWriteLen, conf.wTupLenPow bits)
+//    txnSt.nId := bitsBuff(conf.shiftNodeID, conf.wNId bits)
+//    txnSt.cId.asignFromBits(cmdAxiDataSlice(cntTxnWordInLine)(conf.shiftChannel, conf.wCId))
+//    txnSt.tId.asignFromBits(cmdAxiDataSlice(cntTxnWordInLine)(conf.shiftTID, conf.wTId))
+//    txnSt.tabId.asignFromBits(cmdAxiDataSlice(cntTxnWordInLine)(conf.shiftTable, conf.wTabId))
+//    txnSt.lkType.asignFromBits(cmdAxiDataSlice(cntTxnWordInLine)(conf.shiftLkType, conf.wLkType))
+//    txnSt.wLen.asignFromBits(cmdAxiDataSlice(cntTxnWordInLine)(conf.shiftWriteLen, conf.wTupLenPow))
+
     // IDLE: wait start signal
     IDLE.whenIsActive {
       when(io.start) {
@@ -622,7 +644,9 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
       when(io.cmdAxi.r.fire)(rTxnMemLd.set())
 
       val txnSt = TxnEntry(conf)
-      txnSt.assignFromBits(cmdAxiDataSlice(cntTxnWordInLine))
+      // txnSt.assignFromBits(cmdAxiDataSlice(cntTxnWordInLine))
+      txnSt.assignFromBits(txnBuff)
+
       txnMem.write(txnOffs + cntTxnWord, txnSt, rTxnMemLd)
 
       when(cntTxnWordInLine.willOverflow)(rTxnMemLd.clear())
@@ -658,7 +682,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
 
         // clear status reg
         io.done.clear()
-        Seq(io.cntTxnCmt, io.cntTxnAbt, io.cntTxnLd).foreach(_.clearAll())
+        Seq(io.cntTxnCmt, io.cntTxnAbt, io.cntTxnLd, io.cntLockLoc, io.cntLockRmt, io.cntLockDenyLoc, io.cntLockDenyRmt).foreach(_.clearAll())
 
         goto(CNT)
       }

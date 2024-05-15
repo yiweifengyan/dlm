@@ -49,7 +49,7 @@ class WrapSys(implicit sysConf: SysConfig) extends Component with RenameIO {
 
   // tieOff unused memory ports
   for (i <- (1+sysConf.nTxnMan*2+sysConf.nTxnAgent) until io.axi_mem.length) {
-    // TODO: symplify
+    // TODO: simplify
     io.axi_mem(i).setIdle()
   }
 

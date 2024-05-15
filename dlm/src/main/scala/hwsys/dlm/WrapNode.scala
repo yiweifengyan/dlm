@@ -25,6 +25,10 @@ class WrapNode(implicit sysConf: SysConfig) extends Component {
   (txnManAry, io.cntTxnAbt).zipped.foreach(_.io.cntTxnAbt <> _)
   (txnManAry, io.cntTxnLd).zipped.foreach(_.io.cntTxnLd <> _)
   (txnManAry, io.cntClk).zipped.foreach(_.io.cntClk <> _)
+  (txnManAry, io.cntLockLoc).zipped.foreach(_.io.cntLockLoc <> _)
+  (txnManAry, io.cntLockRmt).zipped.foreach(_.io.cntLockRmt <> _)
+  (txnManAry, io.cntLockDenyLoc).zipped.foreach(_.io.cntLockDenyLoc <> _)
+  (txnManAry, io.cntLockDenyRmt).zipped.foreach(_.io.cntLockDenyRmt <> _)
 
   // txnMan connects to part of io vec
   txnManAry.zipWithIndex.foreach {case (txnMan, idx) =>

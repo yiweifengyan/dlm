@@ -27,6 +27,14 @@ trait SysConfig {
   def wTabId: Int = log2Up(nTab)
   def wTxnManId = log2Up(nTxnMan)
 
+  // Shift Offsets for Txn Entry - 64-bit TxnEntry
+  def shiftNodeID=0
+  def shiftChannel=6
+  def shiftTable=12
+  def shiftTID=18
+  def shiftLkType=42
+  def shiftWriteLen=46
+
   def nTxnAgent = nNode -1
 
   // CC mode: "NW (no wait)", "BW (bounded wait)", "TSO (timestamp ordering)"
@@ -236,7 +244,7 @@ class NodeIO(implicit sysConf: SysConfig) extends Bundle {
   val start = in Bool()
 
   val done = out Vec(Bool(), sysConf.nTxnMan)
-  val cntTxnCmt, cntTxnAbt, cntTxnLd = out Vec(UInt(32 bits), sysConf.nTxnMan)
+  val cntTxnCmt, cntTxnAbt, cntTxnLd, cntLockLoc, cntLockRmt, cntLockDenyLoc, cntLockDenyRmt = out Vec(UInt(32 bits), sysConf.nTxnMan)
   val cntClk = out Vec(UInt(sysConf.wTimeStamp bits), sysConf.nTxnMan)
 }
 
@@ -257,7 +265,7 @@ class NodeNetIO(implicit sysConf: SysConfig) extends Bundle{
   val node = new NodeIO()
   val rdma = new RdmaIO()
   val rdmaCtrl = in Vec(RdmaCtrlIO(), 2)
-
+  val cntRDMASent, cntRDMARecv = out UInt(32 bits)
   def regMap(r: AxiLite4SlaveFactory, baseR: Int): Int = {
     implicit val baseReg = baseR
     // in
@@ -284,6 +292,17 @@ class NodeNetIO(implicit sysConf: SysConfig) extends Bundle{
     }
 
     // out
+    r.read(node.done.asBits, r.getAddr(assignOffs), 0, "TxnEng: done bitVector")
+    assignOffs += 1
+
+    node.cntClk.foreach { e =>
+      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntClk")
+      assignOffs += 1
+    }
+    node.cntTxnLd.foreach { e =>
+      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntTxnLd")
+      assignOffs += 1
+    }
     node.cntTxnCmt.foreach { e =>
       r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntTxnCmt")
       assignOffs += 1
@@ -292,15 +311,25 @@ class NodeNetIO(implicit sysConf: SysConfig) extends Bundle{
       r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntTxnAbt")
       assignOffs += 1
     }
-    node.cntTxnLd.foreach { e =>
-      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntTxnLd")
+    node.cntLockLoc.foreach { e =>
+      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntLockLoc")
       assignOffs += 1
     }
-    node.cntClk.foreach { e =>
-      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntClk")
+    node.cntLockRmt.foreach { e =>
+      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntLockRmt")
       assignOffs += 1
     }
-    r.read(node.done.asBits, r.getAddr(assignOffs), 0, "TxnEng: done bitVector")
+    node.cntLockDenyLoc.foreach { e =>
+      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntLockDenyLoc")
+      assignOffs += 1
+    }
+    node.cntLockDenyRmt.foreach { e =>
+      r.read(e, r.getAddr(assignOffs), 0, "TxnEng: cntLockDenyRmt")
+      assignOffs += 1
+    }
+    r.read(cntRDMASent, r.getAddr(assignOffs), 0, "RDMA: cntMesgSent")
+    assignOffs += 1
+    r.read(cntRDMARecv, r.getAddr(assignOffs), 0, "RDMA: cntMesgReceived")
     assignOffs += 1
 
     assignOffs
@@ -352,7 +381,7 @@ case class TxnManCSIO(conf: SysConfig) extends Bundle {
 
 
   val done = out(Reg(Bool())).init(False)
-  val cntTxnCmt, cntTxnAbt, cntTxnLd = out(Reg(UInt(32 bits))).init(0)
+  val cntTxnCmt, cntTxnAbt, cntTxnLd, cntLockLoc, cntLockRmt, cntLockDenyLoc, cntLockDenyRmt = out(Reg(UInt(32 bits))).init(0)
   val cntClk = out(Reg(UInt(conf.wTimeStamp bits))).init(0)
 
   def setDefault() = {
@@ -375,7 +404,7 @@ case class TxnManCSIO(conf: SysConfig) extends Bundle {
   }
 }
 
-// Lock types: Read, Write, ReadAndWrite, insertTab ()
+// Lock types: Read, Write, ReadAndWrite, insertTab()
 object LkT extends SpinalEnum {
   val rd, wr, raw, insTab = newElement()
 }

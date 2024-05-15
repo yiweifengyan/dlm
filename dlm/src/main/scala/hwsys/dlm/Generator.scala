@@ -23,7 +23,7 @@ object Gen1T2N1C8P {
     override val nCh: Int = 1
     override val nTxnMan: Int = 1
     override val nLtPart: Int = 8
-    override val nLock: Int = (((1<<10)<<10)<<8)>>6
+    override val nLock: Int = (((1<<10)<<10)<<8)>>6 // 22-bit = 2^16 x 2^6 = 65536 x 64 = 4,194,304
   }
 }
 

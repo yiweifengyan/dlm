@@ -48,12 +48,12 @@ class CMemHost(cmemAxiConf: Axi4Config) extends Component {
   List(bpss_rd_req, bpss_wr_req).foreach { e =>
     e.vaddr := reqHostAddr.resized
     e.len := io.len.resized
-    e.stream := True
-    // e.stream := False
+    // e.stream := True
+    e.stream := False
     e.sync := False
     e.ctl := True
-    e.host := False
-    // e.host := True
+    //e.host := False
+    e.host := True
     e.dest := 0
     e.pid := io.pid
     e.vfid := 0
