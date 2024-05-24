@@ -62,6 +62,30 @@ $ mill dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 .\mill-0.10.3-assembly.bat dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 ```
 
+## Linux Mint / Ubuntu / Debian Setup
+ - install JDK, Scala, and SpinalHDL using cs
+ - change the scala version into 2.12.14 and uninstall other scala 3.x libs
+ - install verilator<5.0 and gtkwave using apt, don't use oss-cad-suite
+```
+sudo apt-get update
+sudo apt-get install openjdk-17-jdk-headless curl git
+curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" | gzip -d > cs
+chmod +x cs
+# should find the just installed jdk, agree to cs' questions for adding to your PATH
+./cs setup
+source ~/.profile
+# check cs libraries 
+cs list
+java --version
+scala -version
+cs Install application commands:
+  install    Install an application from its descriptor.
+  list       List all currently installed applications.
+  setup      Setup a machine for Scala development.
+  uninstall  Uninstall one or more applications.
+  update     Update one or more applications.
+``` 
+
 Error:  
 %Error: Cannot find verilated_std.sv containing built-in std:: definitions: /ucrt64/share/verilator\include\verilated_std.sv  
 %Error: This may be because there's no search path specified with -I<dir>.  
@@ -88,3 +112,9 @@ fatal error: jni.h: No such file or directory     5 | #include <jni.h>
 
 Solution:  
 export JAVA_HOME="/usr/lib/jvm/java"  
+
+Error:
+error opening scalactic x.x.x...
+
+Solution:
+https://get-coursier.io/docs/cli-fetch the scalactic package and paste the module dependency info into build.sc 
