@@ -332,7 +332,7 @@ class TxnManCS(conf: SysConfig) extends Component with RenameIO {
     io.axi.b.ready := True
 
     val rAxiBFire = RegNext(io.axi.b.fire)
-    val rAxiBId = RegNext(io.axi.b.id)
+    val rAxiBId = RegNext(io.axi.b.id)    // .resized(conf.wTxnId) // axi.b.id is 6-bit / 64. Resize it to fit the txnID length
     when(rAxiBFire) {
       cntCmtRespLoc(rAxiBId) := cntCmtRespLoc(rAxiBId) + 1
     }
