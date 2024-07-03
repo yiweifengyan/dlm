@@ -43,8 +43,8 @@ trait SysConfig {
 //  def ccProt = "TSO"
 
   // txnMan params
-  val nTxnCS = 64 // concurrent txn count, limited by axi arid (6 bits)
-  val maxTxnLen = 64 // max len of each txn, space of on-chip mem (include the txnHd)
+  val nTxnCS = 16 // concurrent txn count, limited by axi arid (6 bits)
+  val maxTxnLen = 32 // max len of each txn, space of on-chip mem (include the txnHd)
 
   val wTimeOut = 24
 
@@ -83,7 +83,7 @@ trait SysConfig {
   val axiConf = Axi4Config(
     addressWidth = 64,
     dataWidth = 512,
-    idWidth = 6,
+    idWidth = 4, // = conf.wTxnId
     useStrb = true,
     useBurst = true,
     useId = true,

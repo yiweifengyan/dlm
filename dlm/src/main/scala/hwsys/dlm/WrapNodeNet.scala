@@ -35,13 +35,6 @@ class WrapNodeNet(implicit sysConf: SysConfig) extends Component {
   rdmaArb.io.rdmaio <> io.rdma
 
   // count the messages sent and received.
-//  val cntRDMASents, cntRDMARecvs = U(0, 32 bits)
-//  when(io.rdma.axis_src.fire)(cntRDMASents := cntRDMASents + 1)
-//  when(io.rdma.axis_sink.fire)(cntRDMARecvs := cntRDMARecvs + 1)
-//  when(~rdmaFlowMstr.io.ctrl.en) {
-//    cntRDMASents.clearAll()
-//    cntRDMARecvs.clearAll()
-//  }
   val cntSent=Counter(32 bits)
   val cntRecv=Counter(32 bits)
     when(io.rdma.axis_src.fire)(cntSent.increment())

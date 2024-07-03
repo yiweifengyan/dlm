@@ -24,11 +24,11 @@ object SimConversions {
 
   def txnEntrySimToBytes(req: TxnEntrySim)(implicit sysConf: SysConfig) : Seq[Byte] = {
     val vBigInt = req.nId +
-      (req.cId << (sysConf.wNId)) +
-      (req.tId << (sysConf.wNId+sysConf.wCId)) +
-      (req.tabId << (sysConf.wNId+sysConf.wCId+sysConf.wTId)) +
-      (req.lkType << (sysConf.wNId+sysConf.wCId+sysConf.wTId+sysConf.wTabId)) +
-      (req.wLen << (sysConf.wNId+sysConf.wCId+sysConf.wTId+sysConf.wTabId+sysConf.wLkType))
+      (req.cId << (sysConf.shiftChannel)) +
+      (req.tId << (sysConf.shiftTID)) +
+      (req.tabId << (sysConf.shiftTable)) +
+      (req.lkType << (sysConf.shiftLkType)) +
+      (req.wLen << (sysConf.shiftWriteLen))
 
 //    println(s"txnBigInt=${vBigInt.toHexString}")
 

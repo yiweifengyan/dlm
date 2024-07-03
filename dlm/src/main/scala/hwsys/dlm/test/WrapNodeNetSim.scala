@@ -20,9 +20,10 @@ object WrapNodeNetSim {
     implicit val sysConf = new SysConfig {
       override val nNode: Int = 2
       override val nCh: Int = 1
-      override val nTxnMan: Int = 1
-      override val nLtPart: Int = 8
+      override val nTxnMan: Int = 2
+      override val nLtPart: Int = 1
       override val nLock: Int = (((1<<10)<<10)<<8)>>6
+      override val wTimeOut: Int = 10
     }
 
     SimConfig
@@ -38,15 +39,15 @@ object WrapNodeNetSim {
       dut.clockDomain.forkStimulus(period = 10)
 
       // params
-      val txnLen = 16
-      val txnCnt = 128
+      val txnLen = 8
+      val txnCnt = 8
       val txnMaxLen = sysConf.maxTxnLen - 1
 
-      for (idx <- 0 until 2) {
+      for (idx <- 0 until sysConf.nNode) {
         for (iTxnMan <- 0 until sysConf.nTxnMan) {
           // cmd memory
-          val fNId = (i: Int, j: Int) => 0
-          val fCId = (i: Int, j: Int) => 0
+          val fNId = (i: Int, j: Int) => (i * txnLen + j) % sysConf.nNode
+          val fCId = (i: Int, j: Int) => (i * txnLen + j) % sysConf.nCh
           // for different txnMan, there'll be a tIdOffs in txnEntrySimInt
           val fTId = (i: Int, j: Int) => i * txnLen + j
           val fLkAttr = (i: Int, j: Int) => 0
@@ -55,17 +56,18 @@ object WrapNodeNetSim {
           SimDriver.instAxiMemSim(dut.io(idx).node.cmdAxi(iTxnMan), dut.clockDomain, Some(txnCtx))
           // data memory
           SimDriver.instAxiMemSim(dut.io(idx).node.axi(iTxnMan), dut.clockDomain, None)
+          println(s"Axi Memory initialized for node ${idx} Txn Manager ${iTxnMan}")
         }
         for (iTxnAgent <- sysConf.nTxnMan until sysConf.nTxnMan + sysConf.nNode - 1) {
           // data memory
           SimDriver.instAxiMemSim(dut.io(idx).node.axi(iTxnAgent), dut.clockDomain, None)
         }
       }
-
+      println(s"All Axi Memory initialized.")
       // connect rdma sim switch
       SimDriver.rdmaSwitch(dut.clockDomain, 2, 1000, dut.io.map(_.rdma.sq), dut.io.map(_.rdma.rd_req),
         dut.io.map(_.rdma.wr_req), dut.io.map(_.rdma.axis_src), dut.io.map(_.rdma.axis_sink), dut.io.map(_.rdma.ack))
-
+      println(s"RDMA initialized.")
       // node & rdma ctrl
       dut.io.zipWithIndex.foreach { case (e, idx) =>
         e.node.nodeId #= idx
@@ -78,7 +80,7 @@ object WrapNodeNetSim {
         e.rdmaCtrl(0).flowId #= 1 // for each node, mstr flowId is 1, wr to rmt slve
         e.rdmaCtrl(1).flowId #= 0 // mstr flowId is 0, wr to rmt mstr
       }
-
+      println(s"Node config finished.")
       // wait the fifo (empty_ptr) to reset
       dut.clockDomain.waitSampling((1<<sysConf.wHtTable) + 1000)
 
@@ -89,10 +91,11 @@ object WrapNodeNetSim {
         dut.clockDomain.waitSampling()
         e.node.start #= false
       }
+      println(s"Nodes started.")
 
       dut.io.foreach(_.node.done.foreach(a => dut.clockDomain.waitSamplingWhere(a.toBoolean)))
       dut.io.zipWithIndex.foreach { case (e, idx) =>
-        Seq(e.node.cntTxnLd, e.node.cntTxnCmt, e.node.cntTxnAbt, e.node.cntClk).foreach { sigV =>
+        Seq(e.node.cntTxnLd, e.node.cntTxnCmt, e.node.cntTxnAbt, e.node.cntClk, e.node.cntLockLoc, e.node.cntLockRmt, e.node.cntLockDenyLoc, e.node.cntLockDenyRmt).foreach { sigV =>
           sigV.foreach { sig =>
             println(s"Node[$idx]  ${sig.getName()} = ${sig.toBigInt}")
           }
