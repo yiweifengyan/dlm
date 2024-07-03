@@ -362,7 +362,7 @@ case class TxnManCSIO(conf: SysConfig) extends Bundle {
 
   // rd/wr data from/to remote
   val rdRmt = slave Stream Bits(512 bits)
-  val wrRmt = master Stream Bits(512 bits)
+  val wrRmt = master Stream Bits(512 bits) // = 64B, so nBeat = wLen
 
   // local data axi
   val axi = master(Axi4(conf.axiConf))
