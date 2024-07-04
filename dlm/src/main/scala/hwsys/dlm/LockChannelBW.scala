@@ -55,6 +55,7 @@ case class WaitEntryBW(conf: MinSysConfig) extends Bundle{
 }
 
 class LockTableBWIO(conf: MinSysConfig) extends Bundle{
+  val start = in Bool() 
   val channelIdx = in UInt(conf.wChannelID bits)
   val lockRequest  = slave  Stream(LockRequest(conf))
   val lockResponse = master Stream(LockResponse(conf))
@@ -62,16 +63,17 @@ class LockTableBWIO(conf: MinSysConfig) extends Bundle{
 
 class LockTableBWait(conf: MinSysConfig) extends Component {
   val io = new LockTableBWIO(conf)
-  val ht = new Mem(HashValueBW, conf.nHashValue)
-  val ll = new Mem(WaitEntryBW, conf.nLinkListEntry)
+  val ht = new Mem(HashValueBW(conf), conf.nHashValue)
+  val ll = new Mem(WaitEntryBW(conf), conf.nLinkListEntry)
   io.lockRequest.setBlocked()
-  ht.clearAll()
-  ll.clearAll()
+  // ht.reset()
+  // ll.reset()
+  //  ll.reset(), ll.clear(),  ll.clearAll() cannot zero the memory
 
   val rLockReq  = RegNextWhen(io.lockRequest.payload, io.lockRequest.fire) // Current Lock Request
   val hashEntry = Reg(HashValueBW(conf)) // current corresponding Lock
   val waitEntry,  waitEntryOld, waitEntryNew = Reg(WaitEntryBW(conf))
-  val waitOffset, waitOffsetOld  = Reg(UInt(conf.wLinkListOffset)).init(0)
+  val waitOffset, waitOffsetOld  = Reg(UInt(conf.wLinkListOffset bits)).init(0)
   val waitEntryAddr = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffset
   waitEntry := ll(waitEntryAddr)
   val rLockReqIndex = rLockReq.srcNode.asBits ## rLockReq.srcTxnMan.asBits ## rLockReq.srcTxnIdx.asBits
@@ -93,14 +95,14 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     val rLockRespFromReq  = Reg(LockResponse(conf))
     rLockRespFromReq := rLockReq.toLockResponse(rRespTypeGrant, rRespTypeWait, rRespTypeAbort, rRespTypeRelease)
     val rLockRespFromWait = Reg(LockResponse(conf))
-    rLockRespFromWait := waitEntry.toLockResponse(io.channelIdx, rLockReq.lockID, rRespTypeGrant, rRespTypeWait, rRespTypeAbort, rRespTypeRelease)
+    rLockRespFromWait := waitEntry.toLockResponse(io.channelIdx, rLockReq.lockID, rRespTypeGrant, rRespTypeAbort, rRespTypeRelease)
     val rRespByPop        = Reg(Bool()).init(False)
 
     // clear Memory data in idle mode
     val zeroHTValue = HashValueBW(conf)
     val zeroLLValue = WaitEntryBW(conf)
-    val hashAddr = Reg(UInt(conf.wHashTable)).init(0)
-    val linkAddr = Reg(UInt(conf.wLinkListAddr)).init(0)
+    val hashAddr = Reg(UInt(conf.wHashTable bits)).init(0)
+    val linkAddr = Reg(UInt(conf.wLinkListAddr bits)).init(0)
     IDLE.whenIsActive {
       zeroHTValue.exclusive  := False
       zeroHTValue.waitQValid := False
@@ -174,7 +176,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
                 goto(LL_DELETE) // if timeOut, a LL traversal of LLDEL first, if del fail -> normal rlse
             } otherwise { // original lock was granted
                 when(hashEntry.ownerCnt === 1) { // if only has 1 owner
-                  when(hashEntry.waitQPtrVld) { // waitQ exists, needs to go back to pop other Requests
+                  when(hashEntry.waitQValid) { // waitQ exists, needs to go back to pop other Requests
                     rRespTypeRelease := True
                     rReturnToPop     := True
                     hashEntry.ownerCnt := hashEntry.ownerCnt - 1
@@ -268,7 +270,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
           }
         }
         ll(waitEntryAddr) := zeroLLValue // delete the current waitEntry
-        hashEntry.ownnerCnt := hashEntry.ownnerCnt + 1
+        hashEntry.ownerCnt := hashEntry.ownerCnt + 1
         rRespByPop := True
         goto(LOCK_RESP)
       } otherwise{ // current waitEntry should not pop
@@ -306,7 +308,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
 
 
 class LockChannelBW(conf: MinSysConfig) extends Component{
-  val io = LockTableBWIO(conf)
+  val io = new LockTableBWIO(conf)
   val tableArray = Array.fill(conf.nTable)(new LockTableBWait(conf))
   tableArray.foreach{ i =>
     i.io.channelIdx := io.channelIdx

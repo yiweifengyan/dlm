@@ -146,16 +146,16 @@ case class LockRequest(conf: MinSysConfig) extends Bundle {
     def toLockResponse(grant: Bool, wait: Bool, abort: Bool, release: Bool): LockResponse = {
       val lkResp = LockResponse(this.conf)
       lkResp.assignSomeByName(this)
-      lkResp.granted  = grant
-      lkResp.waiting  = wait
-      lkResp.aborted  = abort
-      lkResp.released = release
+      lkResp.granted  := grant
+      lkResp.waiting  := wait
+      lkResp.aborted  := abort
+      lkResp.released := release
       lkResp
     }
     def toWaitEntryBW(): WaitEntryBW = {
       val waitEntry = WaitEntryBW(this.conf)
       waitEntry.assignSomeByName(this)
-      waitEntry.nextReqOffset = 0
+      waitEntry.nextReqOffset := 0
       waitEntry
     }
 }
@@ -182,10 +182,6 @@ case class LockResponse(conf: MinSysConfig) extends Bundle {
     val released = Bool()
 }
 
-
-
-import hwsys.dlm.{LkReq, LkResp, LkT, LockRespType, LockTableBW, LockTableIO, SysConfig, WaitEntryBW}
-import hwsys.util._
 
 case class TxnManAgentIO(conf: MinSysConfig) extends Bundle {
   // Lock Request and Response interface
@@ -239,8 +235,8 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
   // Store TXN workloads
   val MemTxn = Mem(LockEntryMin(conf), conf.nTxnMem)
   // store locks with Write to commit
-  val MemLockWriteLoc = Mem(conf.wLockIdx, conf.nTxnMem)
-  val MemLockWriteRmt = Mem(conf.wLockIdx, conf.nTxnMem)
+  val MemLockWriteLoc = Mem(LockEntryMin(conf), conf.nTxnMem)
+  val MemLockWriteRmt = Mem(LockEntryMin(conf), conf.nTxnMem)
 
   // context registers NOTE: separate local / remote;
   val cntLockGetSentLoc, cntLockHoldLoc, cntLockWaitLoc, cntLockRlseSentLoc, cntLockReleasedLoc = Vec(Reg(UInt(conf.wLockIdx bits)).init(0), conf.nTxnCS)
@@ -272,7 +268,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     val cntTxnLen      = Counter(conf.wMaxTxnLen bits, rTxnMemLd) // iterate on all locks of one txn entry. always works on MaxTxnLen
     // current Txn Index and where to load
     val curTxnIdx    = Reg(UInt(conf.wTxnIdx bits)).init(0)
-    val loadToAddr   = curTxnIdx << conf.wMaxTxnLen + cntTxnLen  // MemTxn's unit is one lock entry. 
+    val loadToAddr   = curTxnIdx << conf.wMaxTxnLen + cntTxnLen.value  // MemTxn's unit is one lock entry. 
     val loadFromAddr = (cntTxnLoaded + io.loadAddrBase) << conf.wTxnMemUnit // load from AXI memory, the unit is one txn entry
     val cntTxnLoaded = Reg(UInt(48 bits)).init(0)
     io.cntTxnLd     := cntTxnLoaded.resized
@@ -302,7 +298,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     // RD_AXI: configs the loadAXI.ar
     io.loadAXI.ar.addr := loadFromAddr.resized 
     io.loadAXI.ar.id   := 0
-    io.loadAXI.ar.len  := (conf.AXI_LOAD_BEAT - 1).resized // how many beats to read in one Txn Entry. e.g., len=0: 1 beat, len=1: 2 beats...
+    io.loadAXI.ar.len  := conf.AXI_LOAD_BEAT - 1 // how many beats to read in one Txn Entry. e.g., len=0: 1 beat, len=1: 2 beats...
     io.loadAXI.ar.size := conf.AXI_DATA_SIZE 
     io.loadAXI.ar.setBurstINCR()
     io.loadAXI.ar.valid:= isActive(RD_AXI) // RD_AXI configs the loadAXI. then LD_TXN loads the whole Txn Entry 
@@ -420,23 +416,57 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     *******************************************************************/
   // demux the io.fromRemoteLockReq (if wrRlse, to Fifo, else to ltReq)
   val isLockReleaseWrite = io.fromRemoteLockReq.toRelease && (io.fromRemoteLockReq.lockType.write) && ~io.fromRemoteLockReq.txnTimeOut // NOTE: not aborted or timeout txn
-  val lockReleaseWrite, lockRequestNormal = cloneOf(io.fromRemoteLockReq)
-  val lockReleaseWriteFIFO = StreamFifo(LockRequest(conf), 8) // stream FIFO to tmp store the wrRlse req (later issue after get axi.b)
+  val lockRequestNormal = cloneOf(io.fromRemoteLockReq)
+  val lockReleaseWriteFIFO = StreamFifo(LockRequest(conf), 16) // stream FIFO to tmp store the wrRlse req (later issue after get axi.b) // asynchronous, so that the queue may accept multiple ReleaseWrites, and the main stream is not blocked
+  val lockRequestWrote = Stream(LockRequest(conf)) // This is the lock request with write after wrote the data
   val lockRequestDemux = StreamDemux(io.fromRemoteLockReq, isLockReleaseWrite.asUInt, 2)
   lockRequestDemux(0) >> lockRequestNormal
-  lockRequestDemux(1) >> lockReleaseWrite // fork to both lockReleaseWriteFIFO and axi.aw
+  lockRequestDemux(1) >> lockReleaseWriteFIFO.io.push // fork to both lockReleaseWriteFIFO and axi.aw, // push the lockReleaseWrite request to the FIFO
   // send LockRequest to lock channels from local Get/Release and remote lockRequestNormal / lockReleaseWriteFIFO
-  io.localLockReq << StreamArbiterFactory.roundRobin.noLock.onArgs(lkReqGetLoc, lkReqRlseLoc, lockRequestNormal, lockReleaseWriteFIFO.io.pop.continueWithToken(io.loadAXI.b.fire, 8))
+  io.localLockReq << StreamArbiterFactory.roundRobin.noLock.onArgs(lkReqGetLoc, lkReqRlseLoc, lockRequestNormal, lockRequestWrote)
 
-  val aRemoteLockRequestHandler = new Area {
-      val (reqFork1, reqFork2) = StreamFork2(lockReleaseWrite, synchronous=False) // asynchronous, so that the queue may accept multiple ReleaseWrites, and the main stream is not blocked
-      lockReleaseWriteFIFO.io.push << reqFork1 // push the lockReleaseWrite request to the FIFO
-
+  val aRemoteLockRequestHandler = new StateMachine{
+      val WAIT_REQ = new State with EntryPoint
+      val MEM_WRITE, SEND_REQ= new State
+      
+      lockReleaseWriteFIFO.io.pop  >-> lockRequestWrote
+      WAIT_REQ.onEntry{ // reset the states
+        io.loadAXI.aw.valid    := False 
+        io.loadAXI.w.valid     := False
+        lockRequestWrote.ready := True  // accept new lockRequest with Write
+        lockRequestWrote.valid := False
+        wrDataQ.ready := False
+      }
+      WAIT_REQ.whenIsActive{
+        when(lockReleaseWriteFIFO.io.pop.fire){ // new lockRequest comes from FIFO.pop
+          io.loadAXI.aw.valid    := True  // set AW to config write addr
+          lockRequestWrote.ready := False // don't accept new lockReq
+        }
+        when(io.loadAXI.aw.fire){ // AXI address has been sent 
+          io.loadAXI.aw.valid    := False // don't repeatly send
+          io.loadAXI.w.valid     := True  // start to write
+          wrDataQ.ready := True  // read out one wrData
+          goto(MEM_WRITE)
+        }
+      }
+      MEM_WRITE.whenIsActive{
+        wrDataQ.ready := io.loadAXI.w.ready // sync wrData readout with AXI.w, because AXI.w.valid=True
+        when(io.loadAXI.b.fire){ // received AXI feedbacks
+          lockRequestWrote.valid := True // send out the lock Release Request to lockTables
+          goto(SEND_REQ)
+        }
+      }
+      SEND_REQ.whenIsActive{
+        when(lockRequestWrote.fire){ //lockRequest has been sent
+          lockRequestWrote.valid := False // don't send repeatly
+          goto(WAIT_REQ)
+        }
+      }
+      
       // write the data from lockReleaseWrite request: one aw config will triger rwLen Writes 
-      io.loadAXI.aw.arbitrationFrom(reqFork2) // aw.valid=reqFork2.valid, reqFolk2.realdy=aw.ready
-      io.loadAXI.aw.addr := (reqFork2.lockID << (log2Up(512/8)+conf.wRWLength) + reqFolk2.channelID << conf.MEM_CH_SIZE).resized // address: 16-bit + 6 + 2 = 24 bits. So txnMem should start from 1<<25. Writes in diff lockIDs have no conflict.
+      io.loadAXI.aw.addr := (lockRequestWrote.lockID << (log2Up(512/8)+conf.wRWLength) + lockRequestWrote.channelID << conf.MEM_CH_SIZE).resized // address: 16-bit + 6 + 2 = 24 bits. So txnMem should start from 1<<25. Writes in diff lockIDs have no conflict.
       io.loadAXI.aw.id   := 0  // not necessary because only use loadAXI Write once
-      io.loadAXI.aw.len  := reqFork2.rwLength -1 // aw.length is Read/Write length - 1 because aw.len=0 is 1 write
+      io.loadAXI.aw.len  := lockRequestWrote.rwLength -1 // aw.length is Read/Write length - 1 because aw.len=0 is 1 write
       io.loadAXI.aw.size := log2Up(512/8) // 512-bit = 64 byte
       io.loadAXI.aw.setBurstINCR()
       if(conf.axiConf.useStrb){
@@ -444,21 +474,14 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       }
 
       // one aw config trigers rwLen Writes 
-      // axi.aw / axi.w is individually processed (nBeat should be fifo)
-      val nBeatQ = StreamFifoLowLatency(UInt(conf.wRWLength bits), 8)
-      nBeatQ.io.push.payload := reqFolk2.rwLength
-      nBeatQ.io.push.valid   := reqFork2.fire // when reqFork2 details are used to config the aw, record the current RWLength
-      nBeatQ.io.pop.ready    := io.loadAXI.w.last && io.loadAXI.w.fire  // pop the RWLength when all data is written
       // count when loadAXI write, so cntBeat=nBeatQ[pop]==rwLen 
       val cntBeat = Counter(conf.wRWLength bits, io.loadAXI.w.fire) // SpinalHDL: Counter(bitCount: BitCount[, inc : Bool]) Starts at zero and ends at (1 << bitCount) - 1
       when(io.loadAXI.w.last && io.loadAXI.w.fire) (cntBeat.clear())// clear counter when 
       
-      val wrDataQ = cloneOf(io.fromRemoteWrite) 
-      wrDataQ << io.fromRemoteWrite.queue(8) // Get the remote write data from the writeQ
-      val wrDataQCtrl = wrDataQ.continueWithToken(reqFork2.fire, io.loadAXI.w.last && io.loadAXI.w.fire, 8)
-      io.loadAXI.w.arbitrationFrom(wrDataQCtrl) // w.valid=wrDataCtrl.valid, wrDataCtrl.ready=w.ready
-      io.loadAXI.w.data := wrDataQCtrl.payload
-      io.loadAXI.w.last := (cntBeat === nBeatQ.io.pop.payload) // cntBeat==nBeatQ.pop
+      val wrDataQ = cloneOf(io.fromRemoteWrite) // w.valid=wrDataCtrl.valid, wrDataCtrl.ready=w.ready
+      wrDataQ <-< io.fromRemoteWrite.queue(16) // Get the remote write data from the writeQ
+      io.loadAXI.w.data := wrDataQ.payload 
+      io.loadAXI.w.last := (cntBeat === lockRequestWrote.rwLength - 1) // cntBeat
       io.loadAXI.b.ready.set() // accept AXI.b to pop lockReleaseWriteFIFO: Ensure the data is written before releasing the lock.
   }
 
@@ -487,7 +510,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       when(io.localLockResp.fire) {
           when(io.localLockResp.granted) {
             when(isLocalResponse)(cntLockHoldLoc(curTxnIdx) := cntLockHoldLoc(curTxnIdx) + 1) // local response, grant + 1
-            when(io.localLockResp.LockType.read)(goto(MEM_READ)) // issue local Read once get the lock
+            when(io.localLockResp.lockType.read)(goto(MEM_READ)) // issue local Read once get the lock
           } elsewhen(io.localLockResp.waiting && isLocalResponse) {
             cntLockWaitLoc(curTxnIdx) := cntLockWaitLoc(curTxnIdx) + 1
           } elsewhen(io.localLockResp.aborted && isLocalResponse) {
@@ -501,7 +524,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     }
 
     io.dataAXI.ar.addr := (rLkResp.lockID << (log2Up(512/8)+conf.wRWLength) + rLkResp.channelID << conf.MEM_CH_SIZE).resized 
-    io.dataAXI.ar.id   := rLkResp.txnManIdx
+    io.dataAXI.ar.id   := rLkResp.srcTxnMan
     io.dataAXI.ar.len  := rLkResp.rwLength - 1
     io.dataAXI.ar.size := log2Up(512 / 8)
     io.dataAXI.ar.setBurstINCR()
@@ -533,7 +556,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     }
     val grantedAllCondition = (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
     when(rFire && grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
-    val readAllCondition = rGetSent && cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx) && cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx)
+    val readAllCondition = rGetSent(rCurTxnIdx) && (cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx)) && (cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx))
     when(rFire && readAllCondition) { // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 80 local lock + 1 remote lock.
       rDataReadRmt(rCurTxnIdx) := True // now set both counters at local and remote response handlers to ensure instant flag set and correctness
       rDataReadLoc(rCurTxnIdx) := True
@@ -587,7 +610,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     * 2, timeOut: release locks = LockGetSent
     * 3, normal end: release locks = LockGetSent
     */
-    val releaseCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntlockGetLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntlockGetRmt(rCurTxnIdx))
+    val releaseCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
     when(rFire && releaseCondition) {
       rReleaseDone(rCurTxnIdx).set()
       rLoaded(rCurTxnIdx).clear()
@@ -595,7 +618,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     }
     val grantedAllCondition = (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
     when(rFire && grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
-    val readAllCondition = rGetSent && cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx) && cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx)
+    val readAllCondition = rGetSent(rCurTxnIdx) && cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx) && cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx)
     when(rFire && readAllCondition){ // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 10 local lock + 1 remote lock.
       rDataReadRmt(rCurTxnIdx) := True // now set both counters at local and remote response handlers to ensure instant flag set and correctness
       rDataReadLoc(rCurTxnIdx) := True
@@ -675,10 +698,10 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
      * 3. rTimeOut: Loaded, not ReleaseSent
      * To release locks == LockGetSent - Aborted locks...
      * */
-    val curTxnIdx      = Reg(UInt(conf.wTxnId bits)).init(0)
+    val curTxnIdx      = Reg(UInt(conf.wTxnIdx bits)).init(0)
     val txnMemAddrBase = curTxnIdx << conf.wMaxTxnLen
     val reqIdx         = cntLockRlseSentLoc(curTxnIdx) + cntLockRlseSentRmt(curTxnIdx)
-    val lockEntry      = lkMemLoc.readSync(txnMemAddrBase + reqIdx)
+    val lockEntry      = MemTxn.readSync(txnMemAddrBase + reqIdx)
     val normalReleaseCondition = rGetSent(curTxnIdx) && rGrantAllLock(curTxnIdx) && rDataReadLoc(curTxnIdx) && rDataReadRmt(curTxnIdx) && rDataWroteLoc(curTxnIdx)
     val releaseCondition       = rLoaded(curTxnIdx) && (rTimeOut(curTxnIdx) || rAbort(curTxnIdx) || normalReleaseCondition) && ~rReleaseSent(curTxnIdx)
     val isLocal                = lockEntry.nodeID === io.nodeIdx
@@ -706,17 +729,17 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
         cntLockRlseSentRmt(curTxnIdx) := cntLockRlseSentRmt(curTxnIdx) + 1
         when((cntLockRlseSentLoc(curTxnIdx) === cntLockGetSentLoc(curTxnIdx)) && (cntLockRlseSentRmt(curTxnIdx) === cntLockGetSentRmt(curTxnIdx) - 1))(rReleaseSent(curTxnIdx) := True)
         switch(lockEntry.lockType.write){
-          is(True) goto(REMOTE_WRITE)
+          is(True) (goto(REMOTE_WRITE))
           is(False)(goto(CS_TXN))
         }
       }
     }
 
-    io.wrRmt.valid := isActive(REMOTE_WRITE)
-    io.wrRmt.payload.setAll()
+    io.toRemoteWrite.valid := isActive(REMOTE_WRITE)
+    io.toRemoteWrite.payload.setAll()
     val nBeat = Reg(UInt(conf.wRWLength bits)).init(0)
     REMOTE_WRITE.whenIsActive {
-      when(io.wrRmt.fire) {
+      when(io.toRemoteWrite.fire) {
         nBeat := nBeat + 1
         when(nBeat === lockEntry.rwLength - 1) {
           nBeat.clearAll()

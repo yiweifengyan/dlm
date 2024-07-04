@@ -24,7 +24,7 @@ class OneTxnManOneLockTable(sysConf: MinSysConfig) extends Component {
     val done = out(Reg(Bool())).init(False)
     val cntTxnCmt, cntTxnAbt, cntTxnLd, cntLockLoc, cntLockRmt, cntLockDenyLoc, cntLockDenyRmt = out(Reg(UInt(32 bits))).init(0) // Local lock analysis
     val cntRmtLockGrant, cntRmtLockWait, cntRmtLockDeny, cntRmtLockRelease = out(Reg(UInt(32 bits))).init(0) // Lock received from remote nodes
-    val cntClk = out(Reg(UInt(conf.wTimeStamp bits))).init(0)
+    val cntClk = out(Reg(UInt(sysConf.wTimeStamp bits))).init(0)
   }
   txnMan.io.nodeIdx := 0
   txnMan.io.txnManIdx := 0
@@ -92,10 +92,10 @@ object CoreSim{
 
       dut.io.start #= false
       // wait the fifo (empty_ptr) to reset
-      dut.clockDomain.waitSampling(sysConf.nLock / sysConf.nLtPart + 1000)
+      dut.clockDomain.waitSampling(sysConf.nLock / sysConf.nTable + 1000)
 
       // config
-      dut.io.cmdAddrOffs #= 0
+      dut.io.loadAddrBase #= 0
       dut.io.txnNumTotal #= txnCnt
 
       // start

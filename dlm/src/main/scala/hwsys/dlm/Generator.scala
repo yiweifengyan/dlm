@@ -109,16 +109,3 @@ object SysCoyote1T2N8C8PGen {
   }
 }
 
-
-// tmp
-object SysCoyoteTcpOneTh {
-  import Gen1T2N8C8P._
-  def main(args: Array[String]): Unit = {
-    MySpinalConfig.generateVerilog{
-      val top = new TcpOneTh()
-      top.renameIO()
-      top.setDefinitionName("dlm_tcponeth")
-      top
-    }
-  }
-}

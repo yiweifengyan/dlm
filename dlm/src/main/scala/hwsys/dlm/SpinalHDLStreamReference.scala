@@ -3,7 +3,7 @@
 /**
  *  A StreamArbiter is like a StreamMux, but with built-in complex selection logic that can arbitrate input
  *  streams based on a schedule or handle fragmented streams. Use a StreamArbiterFactory to create instances of this class.
- */
+ 
 class StreamArbiter[T <: Data](dataType: HardType[T], val portCount: Int)(val arbitrationFactory: (StreamArbiter[T]) => Area, val lockFactory: (StreamArbiter[T]) => Area) extends Component {
   val io = new Bundle {
     val inputs = Vec(slave Stream (dataType),portCount)
@@ -107,6 +107,7 @@ class StreamMux[T <: Data](dataType: T, portCount: Int) extends Component {
   io.output.valid := io.inputs(io.select).valid
   io.output.payload := io.inputs(io.select).payload
 }
+
 class StreamDemux[T <: Data](dataType: T, portCount: Int) extends Component {
   val io = new Bundle {
     val select = in UInt (log2Up(portCount) bit)
@@ -129,4 +130,4 @@ class StreamDemux[T <: Data](dataType: T, portCount: Int) extends Component {
     }
   }
 }
-
+*/
