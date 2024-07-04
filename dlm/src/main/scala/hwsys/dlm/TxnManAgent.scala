@@ -1,3 +1,13 @@
+package hwsys.dlm
+
+import spinal.core.{UInt, _}
+import spinal.core.Mem
+import spinal.lib._
+import spinal.lib.fsm._
+import spinal.lib.bus.amba4.axi._
+import spinal.lib.fsm.StateMachine
+import hwsys.util._
+
 trait MinSysConfig {
     // system params
     val nNode : Int    // 4-bit, <=16
@@ -90,12 +100,12 @@ trait MinSysConfig {
 }
 
 // Lock types: NoLock, Read, Write, ReadAndWrite
-case LockType extends Bundle {
+case class LockType() extends Bundle {
   val read = Bool() init False
   val write = Bool() init False
 }
 
-case class LockEntry(conf: MinSysConfig) extends Bundle {
+case class LockEntryMin(conf: MinSysConfig) extends Bundle {
   val nodeID    = UInt(conf.wNodeID bits)
   val channelID = UInt(conf.wChannelID bits)
   val tableID   = UInt(conf.wTableID bits)
@@ -107,12 +117,12 @@ case class LockEntry(conf: MinSysConfig) extends Bundle {
     val lkReq = LockRequest(this.conf) // process in txnMan, so false
     lkReq.assignSomeByName(this)
     // Lock Request: 16-bit + 8-bit lockIdx
-    lkReq.srcNode = srcNodeID
-    lkReq.srcTxnMan = txnManID
-    lkReq.srcTxnIdx = curTxnIdx
-    lkReq.toRelease = release // True: Release lock. False: Get Lock
-    lkReq.txnTimeOut = timeOut
-    // lkReq.lockIdx    = lkIdx
+    lkReq.srcNode := srcNodeID
+    lkReq.srcTxnMan := txnManID
+    lkReq.srcTxnIdx := curTxnIdx
+    lkReq.toRelease := release // True: Release lock. False: Get Lock
+    lkReq.txnTimeOut := timeOut
+    // lkReq.lockIdx    := lkIdx
     lkReq
   }
 }
@@ -172,14 +182,14 @@ case class LockResponse(conf: MinSysConfig) extends Bundle {
     val released = Bool()
 }
 
-package hwsys.dlm
+
 
 import hwsys.dlm.{LkReq, LkResp, LkT, LockRespType, LockTableBW, LockTableIO, SysConfig, WaitEntryBW}
 import hwsys.util._
 
 case class TxnManAgentIO(conf: MinSysConfig) extends Bundle {
   // Lock Request and Response interface
-  val localLockReq,  toRemoteLockReq   = master Stream LockRequest(conf)
+  val localLockReq,  toRemoteLockReq    = master Stream LockRequest(conf)
   val localLockResp, fromRemoteLockResp = slave Stream LockResponse(conf)
   val fromRemoteLockReq = slave Stream LockRequest(conf)
   val toRemoteLockResp = master Stream LockResponse(conf)
@@ -227,7 +237,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     e.valid := False
 
   // Store TXN workloads
-  val MemTxn = Mem(LockEntry(conf), conf.nTxnMem)
+  val MemTxn = Mem(LockEntryMin(conf), conf.nTxnMem)
   // store locks with Write to commit
   val MemLockWriteLoc = Mem(conf.wLockIdx, conf.nTxnMem)
   val MemLockWriteRmt = Mem(conf.wLockIdx, conf.nTxnMem)
@@ -310,7 +320,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     // load txnMem
     LD_TXN.whenIsActive {
       // extract the locks from read_data one-by-one
-      val curLock = LockEntry(conf)
+      val curLock = LockEntryMin(conf)
       curLock.assignFromBits(loadAXIDataSlice(cntLockPerRead)) // get lock use relative addr: cntLock per Read
       MemTxn.write(loadToAddr, curLock, rTxnMemLd) // write this lock entry to MemTxn
       // conditions 

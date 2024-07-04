@@ -1,11 +1,20 @@
 package hwsys.dlm
-case class LockRespType extends Bundle{
-  // Lock Response Types - one-hot encoding - 4-bit
-  val granted = Bool()
-  val waiting = Bool()
-  val aborted = Bool()
-  val released = Bool()
-}
+
+import spinal.core.{UInt, _}
+import spinal.core.Mem
+import spinal.lib._
+import spinal.lib.fsm._
+import spinal.lib.bus.amba4.axi._
+import spinal.lib.fsm.StateMachine
+import hwsys.util._
+
+//case class LockRespType() extends Bundle{
+//  // Lock Response Types - one-hot encoding - 4-bit
+//  val granted = Bool()
+//  val waiting = Bool()
+//  val aborted = Bool()
+//  val released = Bool()
+//}
 
 // Hash Table value
 case class HashValueBW(conf: MinSysConfig) extends Bundle{
@@ -32,27 +41,27 @@ case class WaitEntryBW(conf: MinSysConfig) extends Bundle{
   def toUInt : UInt = {
     this.asBits.asUInt
   }
-  def toLockResponse(channelIdx: UInt, lockAddr: UInt, grant: Bool, abort: Bool, release: Bool): LockResponse{
-    val lkResp = LockResponse (this.conf)
-    lkResp.assignSomeByName (this)
-    lkResp.channelID = channelIdx
-    lkResp.lockID  = lockAddr
-    lkResp.granted = grant
-    lkResp.waiting = False
-    lkResp.aborted = abort
-    lkResp.released = release
+  def toLockResponse(channelIdx: UInt, lockAddr: UInt, grant: Bool, abort: Bool, release: Bool): LockResponse ={
+    val lkResp = LockResponse(this.conf)
+    lkResp.assignSomeByName(this)
+    lkResp.channelID := channelIdx
+    lkResp.lockID  := lockAddr
+    lkResp.granted := grant
+    lkResp.waiting := False
+    lkResp.aborted := abort
+    lkResp.released := release
     lkResp
   }
 }
 
-class LockTableIO(conf: MinSysConfig) extends Bundle{
+class LockTableBWIO(conf: MinSysConfig) extends Bundle{
   val channelIdx = in UInt(conf.wChannelID bits)
   val lockRequest  = slave  Stream(LockRequest(conf))
   val lockResponse = master Stream(LockResponse(conf))
 }
 
-class LockTableBW(conf: MinSysConfig) extends Component {
-  val io = new LockTableIO(conf)
+class LockTableBWait(conf: MinSysConfig) extends Component {
+  val io = new LockTableBWIO(conf)
   val ht = new Mem(HashValueBW, conf.nHashValue)
   val ll = new Mem(WaitEntryBW, conf.nLinkListEntry)
   io.lockRequest.setBlocked()
@@ -297,8 +306,8 @@ class LockTableBW(conf: MinSysConfig) extends Component {
 
 
 class LockChannelBW(conf: MinSysConfig) extends Component{
-  val io = LockTableIO(conf)
-  val tableArray = Array.fill(conf.nTable)(new LockTableBW(conf))
+  val io = LockTableBWIO(conf)
+  val tableArray = Array.fill(conf.nTable)(new LockTableBWait(conf))
   tableArray.foreach{ i =>
     i.io.channelIdx := io.channelIdx
   }

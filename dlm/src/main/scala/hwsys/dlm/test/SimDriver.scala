@@ -44,14 +44,14 @@ object SimInit {
     var txnMem = Seq.empty[Byte]
     for (i <- 0 until txnCnt) {
       // txnHd
-      txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(txnLen), 8)
+      txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(txnLen), 4)
       // lkInsTab
       // txnMem = txnMem ++ TxnEntrySim(fNId(i, 0), fCId(i, 0), fTId(i, 0) + tIdOffs, 0, 3, fWLen(i, 0)).asBytes
       for (j <- 0 until txnLen) {
         txnMem = txnMem ++ TxnEntrySim(fNId(i, j), fCId(i, j), fTId(i, j) + tIdOffs, 0, fLk(i, j), fWLen(i, j)).asBytes
       }
       for (j <- 0 until (txnMaxLen-txnLen))
-        txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(0), 8)
+        txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(0), 4)
     }
     txnMem
   }
