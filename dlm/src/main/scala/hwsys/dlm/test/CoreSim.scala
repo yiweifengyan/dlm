@@ -44,8 +44,9 @@ class OneTxnManOneLockTable(sysConf: MinSysConfig) extends Component {
 //  io.cntLockDenyRmt <> txnMan.io.cntLockDenyRmt
 
   table.io.channelIdx := 0
-  txnMan.io.localLockReq <> table.io.lockRequest
-  txnMan.io.localLockResp <> table.io.lockResponse
+  table.io.start := io.start
+  txnMan.io.localLockReq >> table.io.lockRequest
+  txnMan.io.localLockResp << table.io.lockResponse
 
   txnMan.io.toRemoteLockReq >> txnMan.io.fromRemoteLockReq
   txnMan.io.toRemoteLockResp >> txnMan.io.fromRemoteLockResp
@@ -80,14 +81,14 @@ object CoreSim{
       val axiMem = SimDriver.instAxiMemSim(dut.io.dataAXI, dut.clockDomain, None)
 
       // cmd memory
-      val fNId = (i: Int, j: Int) => i
-      val fCId = (i: Int, j: Int) => 0
-      val fTId = (i: Int, j: Int) => i*j+i
-      val fLkAttr = (i: Int, j: Int) => j
+      val fNId = (i: Int, j: Int) => i % sysConf.nNode
+      val fCId = (i: Int, j: Int) => j % sysConf.nChannel
+      val fTId = (i: Int, j: Int) => (i*j+j) % sysConf.nTable
+      val fLockID = (i: Int, j: Int) => i*j+j
       val fWLen = (i: Int, j: Int) => 1
 
 
-      val txnCtx = SimInit.txnEntrySimInt(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLkAttr, fWLen).toArray
+      val txnCtx = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fWLen).toArray
       val cmdAxiMem = SimDriver.instAxiMemSim(dut.io.loadAXI, dut.clockDomain, Some(txnCtx))
 
       dut.io.start #= false

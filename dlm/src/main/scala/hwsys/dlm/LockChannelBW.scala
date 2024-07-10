@@ -18,7 +18,7 @@ import hwsys.util._
 
 // Hash Table value
 case class HashValueBW(conf: MinSysConfig) extends Bundle{
-  val exclusive  = Bool().init(False) // sh,ex
+  val exclusive  = Bool() // .init(False) // sh,ex // Error: Try to set initial value of a data that is not a register
   val waitQValid = Bool() // if the waitQ ptr valid, also used to indicate if there's lkReq in waiting queue
   val ownerCnt   = UInt(conf.wOwnerCnt bits)
   val waitQAddr  = UInt(conf.wLinkListOffset bits)
@@ -64,11 +64,11 @@ class LockTableBWIO(conf: MinSysConfig) extends Bundle{
 class LockTableBWait(conf: MinSysConfig) extends Component {
   val io = new LockTableBWIO(conf)
   val ht = new Mem(HashValueBW(conf), conf.nHashValue)
-  val ll = new Mem(WaitEntryBW(conf), conf.nLinkListEntry)
-  io.lockRequest.setBlocked()
+  val ll = new Mem(WaitEntryBW(conf), conf.nLinkListEntry) // Mem[8192*24 bits]
+  // io.lockRequest.setBlocked()
   // ht.reset()
   // ll.reset()
-  //  ll.reset(), ll.clear(),  ll.clearAll() cannot zero the memory
+  // ll.reset(), ll.clear(), ll.clearAll() cannot zero the memory
 
   val rLockReq  = RegNextWhen(io.lockRequest.payload, io.lockRequest.fire) // Current Lock Request
   val hashEntry = Reg(HashValueBW(conf)) // current corresponding Lock
@@ -99,27 +99,27 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     val rRespByPop        = Reg(Bool()).init(False)
 
     // clear Memory data in idle mode
-    val zeroHTValue = HashValueBW(conf)
-    val zeroLLValue = WaitEntryBW(conf)
+    val zeroHTValue = Reg(HashValueBW(conf))
+    val zeroLLValue = Reg(WaitEntryBW(conf))
+    zeroHTValue.exclusive  := False
+    zeroHTValue.waitQValid := False
+    zeroHTValue.ownerCnt   := 0
+    zeroHTValue.waitQAddr  := 0
+    zeroLLValue.srcNode    := 0
+    zeroLLValue.srcTxnMan  := 0
+    zeroLLValue.srcTxnIdx  := 0
+    zeroLLValue.lockType.read  := False
+    zeroLLValue.lockType.write := False
+    zeroLLValue.rwLength       := 0
+    zeroLLValue.nextReqOffset  := 0
     val hashAddr = Reg(UInt(conf.wHashTable bits)).init(0)
-    val linkAddr = Reg(UInt(conf.wLinkListAddr bits)).init(0)
+    val linkAddr = Reg(UInt(conf.wLinkList bits)).init(0)
+    // val linkAddr = Reg(UInt(conf.wLinkListAddr bits)).init(0) // Error WIDTH MISMATCH (13 bits <- 14 bits) on (toplevel/table/htFSM_linkAddr
     IDLE.whenIsActive {
-      zeroHTValue.exclusive  := False
-      zeroHTValue.waitQValid := False
-      zeroHTValue.ownerCnt   := 0
-      zeroHTValue.waitQAddr  := 0
-      zeroLLValue.srcNode    := 0
-      zeroLLValue.srcTxnMan  := 0
-      zeroLLValue.srcTxnIdx  := 0
-      zeroLLValue.lockType.read  := False
-      zeroLLValue.lockType.write := False
-      zeroLLValue.rwLength       := 0
-      zeroLLValue.nextReqOffset  := 0
-
       hashAddr := hashAddr + 1
       ht(hashAddr) := zeroHTValue
       linkAddr := linkAddr + 1
-      when(linkAddr < conf.nLinkListEntry) (ll(linkAddr) := zeroLLValue)
+      ll(linkAddr) := zeroLLValue
       when(io.start) (goto(WAIT_REQ))
     }
     
@@ -312,6 +312,7 @@ class LockChannelBW(conf: MinSysConfig) extends Component{
   val tableArray = Array.fill(conf.nTable)(new LockTableBWait(conf))
   tableArray.foreach{ i =>
     i.io.channelIdx := io.channelIdx
+    i.io.start      := io.start
   }
 
   // DeMUX lock requests to multiple Lock Tables

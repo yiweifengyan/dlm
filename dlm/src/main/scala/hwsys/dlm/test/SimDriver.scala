@@ -37,8 +37,31 @@ object SimConversions {
 
 }
 
+case class LockEntrySim(nID: Int, cID: Int, tID: Int, lockID: Int, lockType: Int, rwLen: Int)(implicit conf: MinSysConfig){
+  def toBytes(byteLen: Int): Seq[Byte] = {
+    val v = BigInt(this.nID + this.cID << conf.sChannel + this.tID << conf.sTable + this.lockID << conf.sLockID + this.lockType << conf.sLockType + this.rwLen << conf.sRWLength)
+    v.toByteArray.reverse.padTo(byteLen, 0.toByte)
+  }
+  def bigIntToBytes(v: BigInt, byteLen: Int) : Seq[Byte] = {
+    v.toByteArray.reverse.padTo(byteLen, 0.toByte)
+  }
+}
+
 // Init methods
 object SimInit {
+    def txnEntrySim(txnCnt: Int, txnLen: Int, txnMaxLen: Int, tIdOffs: Int = 0)(fNId: (Int, Int) => Int, fCId: (Int, Int) => Int, fTId: (Int, Int) => Int, fLk: (Int, Int) => Int, fWLen: (Int, Int) => Int)(implicit sysConf: MinSysConfig): Seq[Byte] = {
+    var txnMem = Seq.empty[Byte]
+    for (i <- 0 until txnCnt) {
+      // txnHead
+      txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(txnLen), 4)
+      for (j <- 0 until txnLen) {
+        txnMem = txnMem ++ LockEntrySim(fNId(i, j), fCId(i, j), fTId(i, j) + tIdOffs, fLk(i, j), 3, fWLen(i, j)).toBytes(4) // LockType=3, read and write
+      }
+      for (j <- 0 until (txnMaxLen-txnLen))
+        txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(0), 4)
+    }
+    txnMem
+  }
 
   def txnEntrySimInt(txnCnt: Int, txnLen: Int, txnMaxLen: Int, tIdOffs: Int = 0)(fNId: (Int, Int) => Int, fCId: (Int, Int) => Int, fTId: (Int, Int) => Int, fLk: (Int, Int) => Int, fWLen: (Int, Int) => Int)(implicit sysConf: SysConfig): Seq[Byte] = {
     var txnMem = Seq.empty[Byte]
