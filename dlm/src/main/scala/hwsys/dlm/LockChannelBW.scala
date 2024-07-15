@@ -45,6 +45,7 @@ case class WaitEntryBW(conf: MinSysConfig) extends Bundle{
     val lkResp = LockResponse(this.conf)
     lkResp.assignSomeByName(this)
     lkResp.channelID := channelIdx
+    lkResp.tableIdx := 0 // Not used. This item is here to make Req-Resp have same 48-bits: easier depacket
     lkResp.lockID  := lockAddr
     lkResp.granted := grant
     lkResp.waiting := False

@@ -19,6 +19,7 @@ trait MinSysConfig {
     val maxTxnLen = 32 // max len of each txn (include the txnHd)
     val wMaxTxnLen= log2Up(maxTxnLen) 
     val wTimeOut  = 24 // Timeout counter
+    val wSendTimeOut = 8 // TimeOut counter inside the NetManager: the batching latency
     val wTimeStamp = 40
 
     // bit-width to represent the values.
@@ -131,15 +132,14 @@ case class LockRequest(conf: MinSysConfig) extends Bundle {
     val channelID = UInt(conf.wChannelID bits)
     val tableID   = UInt(conf.wTableID bits)
     val lockID    = UInt(conf.wLockID bits)
-    val lockType  = LockType()
+    val lockType  = LockType() // 28-29 bits
     val rwLength  = UInt(conf.wRWLength bits) // read/write size = rwLength * 64 Bytes
-    // Lock Request: 24-bit
+    // Lock Request: 16-bit without lockIdx
     val srcNode = UInt(conf.wNodeID bits)
     val srcTxnMan = UInt(conf.wTxnManID bits)
     val srcTxnIdx = UInt(conf.wTxnIdx bits)
     val toRelease = Bool() // True: Release lock. False: Get Lock
     val txnTimeOut = Bool()// True: clear the lock request in WaitQ.
-    // val lockIdx = UInt(conf.wLockIdx bits) // which lock in the lockIdx
 
     def toLockResponse(grant: Bool, wait: Bool, abort: Bool, release: Bool): LockResponse = {
       val lkResp = LockResponse(this.conf)
@@ -148,6 +148,7 @@ case class LockRequest(conf: MinSysConfig) extends Bundle {
       lkResp.waiting  := wait
       lkResp.aborted  := abort
       lkResp.released := release
+      lkResp.tableIdx := 0
       lkResp
     }
     def toWaitEntryBW(): WaitEntryBW = {
@@ -165,11 +166,11 @@ case class LockResponse(conf: MinSysConfig) extends Bundle {
     val srcTxnIdx = UInt(conf.wTxnIdx bits)
     val toRelease = Bool() // True: Release lock. False: Get Lock
     val txnTimeOut = Bool()// True: clear the lock request in WaitQ.
-    // val lockIdx = UInt(conf.wLockIdx bits) // which lock in the lockIdx
 
     // Lock Response
-    // From Lock Entry details - 4-bit
+    // From Lock Entry details - 20-bit
     val channelID = UInt(conf.wChannelID bits)
+    val tableIdx   = UInt(conf.wTableID bits) // 28-31 bits
     val lockID    = UInt(conf.wLockID bits)
     val lockType  = LockType()
     val rwLength  = UInt(conf.wRWLength bits) // read/write size = rwLength * 64 Bytes
@@ -227,9 +228,6 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
   // lkGet and lkRlse are be arbitrated and sent to io
   val lkReqGetLoc, lkReqRlseLoc, lkReqGetRmt, lkReqRlseRmt = Stream(LockRequest(conf))
   io.toRemoteLockReq << StreamArbiterFactory.roundRobin.noLock.onArgs(lkReqGetRmt, lkReqRlseRmt)
-  // for (e <- Seq(lkReqGetLoc, lkReqRlseLoc, lkReqGetRmt, lkReqRlseRmt))
-  //   e.valid := False
-  // Error: ASSIGNMENT OVERLAP completely the previous one of (toplevel/txnMan/lkReqGetLoc_valid :  Bool) lkReqGetRmt_valid 
 
   // Store TXN workloads
   val MemTxn = Mem(LockEntryMin(conf), conf.nTxnMem)
