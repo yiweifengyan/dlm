@@ -130,4 +130,13 @@ class StreamDemux[T <: Data](dataType: T, portCount: Int) extends Component {
     }
   }
 }
+
+    def roundRobin(core: StreamArbiter[_ <: Data]) = new Area {
+      import core._
+      for(bitId  <- maskLocked.range){
+        maskLocked(bitId) init(Bool(bitId == maskLocked.length-1))
+      }
+      //maskProposal := maskLocked
+      maskProposal := OHMasking.roundRobin(Vec(io.inputs.map(_.valid)),Vec(maskLocked.last +: maskLocked.take(maskLocked.length-1)))
+    }
 */

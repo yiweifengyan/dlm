@@ -8,15 +8,20 @@ import spinal.lib.bus.amba4.axi._
 import spinal.lib.fsm.StateMachine
 
 class CoreIO(sysConf: MinSysConfig) extends Bundle {
+  // AXI Mem Channels
   val AXI = Vec(master(Axi4(sysConf.axiConf)), sysConf.nTxnMan * 2)
+  // Txn Summary
   val txnNumTotal = in UInt (32 bits)
   val loadAddrBase = in Vec(UInt(32 bits), sysConf.nTxnMan) //NOTE: unit size 64B
-
+  // Node Info
   val nodeIdx = in UInt(sysConf.wNodeID bits)
   val start  = in Bool()
   val done   = out Vec(Bool(), sysConf.nTxnMan)
   val cntClk = out Vec(UInt(sysConf.wTimeStamp bits), sysConf.nTxnMan)
   val cntTxnCmt, cntTxnAbt, cntTxnLd, cntLockLoc, cntLockRmt, cntLockDenyLoc, cntLockDenyRmt = out Vec(UInt(32 bits), sysConf.nTxnMan)
+  // RDMA Info
+  val rdmaSink = slave Stream Bits(512 bits)
+  val rdmaSource = master Stream Bits(512 bits)
 }
 
 class WrapCore(conf: MinSysConfig) extends Component {
@@ -77,6 +82,18 @@ class WrapCore(conf: MinSysConfig) extends Component {
   (txnManArray, respArbiterArray).zipped.foreach(_.io.localLockResp << _.io.output)
 
   // TODO: Test WrapCore
-  // TODO: Add Communication Manager
-
+  // TODO: Add Routing Table
+  val netManager = new NetManager(conf)
+  for (i <- 0 until conf.nTxnMan){
+    netManager.io.toRemoteLockReq(i)  << txnManArray(i).io.toRemoteLockReq
+    netManager.io.toRemoteLockResp(i) << txnManArray(i).io.toRemoteLockResp
+    netManager.io.toRemoteRead(i)     << txnManArray(i).io.toRemoteRead
+    netManager.io.toRemoteWrite(i)    << txnManArray(i).io.toRemoteWrite
+    netManager.io.fromRemoteLockReq(i)  >> txnManArray(i).io.fromRemoteLockReq
+    netManager.io.fromRemoteLockResp(i) >> txnManArray(i).io.fromRemoteLockResp
+    netManager.io.fromRemoteRead(i)     >> txnManArray(i).io.fromRemoteRead
+    netManager.io.fromRemoteWrite(i)    >> txnManArray(i).io.fromRemoteWrite
+  }
+  netManager.io.rdmaSink   << io.rdmaSink
+  netManager.io.rdmaSource >> io.rdmaSource
 }
