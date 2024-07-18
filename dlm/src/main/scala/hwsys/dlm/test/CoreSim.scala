@@ -8,38 +8,6 @@ import hwsys.dlm._
 import hwsys.sim._
 import hwsys.util.Helpers._
 
-class OneTxnManOneLockTable(sysConf: MinSysConfig) extends Component {
-
-  val txnMan = new TxnManAgent(sysConf)
-  val table = new LockTableBWait(sysConf)
-
-  val io = new Bundle {
-    val dataAXI = master(Axi4(sysConf.axiConf))
-    val loadAXI = master(Axi4(sysConf.axiConf))
-    // txnMan config
-    val txnNumTotal = in UInt (32 bits) // total txns to load
-    val loadAddrBase = in UInt (32 bits) // loading address base. NOTE: unit size 512B
-    // control signals (wire the input to the top AXIL registers)
-    val start = in Bool() //NOTE: hold for 1 cycle
-    val done = out(Reg(Bool())).init(False)
-    val cntTxnCmt, cntTxnAbt, cntTxnLd, cntLockLoc, cntLockRmt, cntLockDenyLoc, cntLockDenyRmt = out(Reg(UInt(32 bits))).init(0) // Local lock analysis
-    val cntRmtLockGrant, cntRmtLockWait, cntRmtLockDeny, cntRmtLockRelease = out(Reg(UInt(32 bits))).init(0) // Lock received from remote nodes
-    val cntClk = out(Reg(UInt(sysConf.wTimeStamp bits))).init(0)
-  }
-  txnMan.io.nodeIdx := 0
-  txnMan.io.txnManIdx := 0
-  txnMan.io.connectSomeByName(io)
-
-  table.io.channelIdx := 0
-  table.io.start := io.start
-  txnMan.io.localLockReq >> table.io.lockRequest
-  txnMan.io.localLockResp << table.io.lockResponse
-
-  txnMan.io.toRemoteLockReq >> txnMan.io.fromRemoteLockReq
-  txnMan.io.toRemoteLockResp >> txnMan.io.fromRemoteLockResp
-  txnMan.io.toRemoteRead >> txnMan.io.fromRemoteRead
-  txnMan.io.toRemoteWrite >> txnMan.io.fromRemoteWrite
-}
 
 class TwoTxnManTwoLockTable(sysConf: MinSysConfig) extends Component {
 
@@ -125,8 +93,9 @@ object CoreSim{
       val fCId = (i: Int, j: Int) => j % sysConf.nChannel
       val fTId = (i: Int, j: Int) => (i*j+j) % sysConf.nTable
       val fLockID = (i: Int, j: Int) => i*j+j
+      val fLockType = (i: Int, j: Int) => 1 // Read
       val fWLen   = (i: Int, j: Int) => 1
-      val txnCtx  = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fWLen).toArray
+      val txnCtx  = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fLockType, fWLen).toArray
       val cmdAxiMem = SimDriver.instAxiMemSim(dut.io.loadAXI, dut.clockDomain, Some(txnCtx))
       val axiMem    = SimDriver.instAxiMemSim(dut.io.dataAXI, dut.clockDomain, None)
       val cmdAxiMemB = SimDriver.instAxiMemSim(dut.io.loadAXIB, dut.clockDomain, Some(txnCtx))

@@ -49,19 +49,22 @@ case class LockEntrySim(nID: Int, cID: Int, tID: Int, lockID: Int, lockType: Int
 
 // Init methods
 object SimInit {
-    def txnEntrySim(txnCnt: Int, txnLen: Int, txnMaxLen: Int, tIdOffs: Int = 0)(fNId: (Int, Int) => Int, fCId: (Int, Int) => Int, fTId: (Int, Int) => Int, fLk: (Int, Int) => Int, fWLen: (Int, Int) => Int)(implicit sysConf: MinSysConfig): Seq[Byte] = {
-    var txnMem = Seq.empty[Byte]
-    for (i <- 0 until txnCnt) {
-      // txnHead
-      txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(txnLen), 4)
-      for (j <- 0 until txnLen) {
-        txnMem = txnMem ++ LockEntrySim(fNId(i, j), fCId(i, j), fTId(i, j) + tIdOffs, fLk(i, j), 3, fWLen(i, j)).toBytes(4) // LockType=3, read and write
+    def txnEntrySim(txnCnt: Int, txnLen: Int, txnMaxLen: Int, tIdOffs: Int = 0)(fNId: (Int, Int) => Int, fCId: (Int, Int) => Int, fTId: (Int, Int) => Int, fLk: (Int, Int) => Int, fLockType: (Int, Int) => Int, fWLen: (Int, Int) => Int)(implicit sysConf: MinSysConfig): Seq[Byte] = {
+      var txnMem = Seq.empty[Byte]
+      for (i <- 0 until txnCnt) {
+        // txnHead
+        txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(txnLen), 4)
+        // println(MemStructSim.bigIntToBytes(BigInt(txnLen), 4)) // (32, 0, 0, 0)
+        for (j <- 0 until txnLen) { // Scala << expression needs (x << (shift_size)) to ensure correctness!!!
+          var aLock = fNId(i, j) + (fCId(i, j) << (sysConf.sChannel)) + ((fTId(i, j) + tIdOffs) << (sysConf.sTable)) + (fLk(i, j) << (sysConf.sLockID)) + (fLockType(i, j) << (sysConf.sLockType)) + (fWLen(i, j) << (sysConf.sRWLength))
+          // println(aLock, "fNID", fNId(i,j), sysConf.sNodeID, "fCID",fCId(i, j), sysConf.sChannel, "fTID", (fTId(i, j) + tIdOffs), sysConf.sTable , "fLock", fLk(i, j), sysConf.sLockID, "fLockType", fLockType(i, j), sysConf.sLockType, "fWLen", fWLen(i, j), sysConf.sRWLength)
+          txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(aLock), 4) // LockType=3, read and write
+        }
+        for (j <- 0 until (txnMaxLen - txnLen - 1))
+          txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(0), 4)
       }
-      for (j <- 0 until (txnMaxLen-txnLen))
-        txnMem = txnMem ++ MemStructSim.bigIntToBytes(BigInt(0), 4)
+      txnMem
     }
-    txnMem
-  }
 
   def txnEntrySimInt(txnCnt: Int, txnLen: Int, txnMaxLen: Int, tIdOffs: Int = 0)(fNId: (Int, Int) => Int, fCId: (Int, Int) => Int, fTId: (Int, Int) => Int, fLk: (Int, Int) => Int, fWLen: (Int, Int) => Int)(implicit sysConf: SysConfig): Seq[Byte] = {
     var txnMem = Seq.empty[Byte]

@@ -93,10 +93,6 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     val rUpdateWaitEntryOld  = Reg(Bool()).init(False)
     val cntCheckEmpty = Reg(UInt(conf.wLinkListOffset bits)).init(0)
 
-    val rLockRespFromReq  = Reg(LockResponse(conf))
-    rLockRespFromReq := rLockReq.toLockResponse(rRespTypeGrant, rRespTypeWait, rRespTypeAbort, rRespTypeRelease)
-    val rLockRespFromWait = Reg(LockResponse(conf))
-    rLockRespFromWait := waitEntry.toLockResponse(io.channelIdx, rLockReq.lockID, rRespTypeGrant, rRespTypeAbort, rRespTypeRelease)
     val rRespByPop        = Reg(Bool()).init(False)
 
     // clear Memory data in idle mode
@@ -286,10 +282,46 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
       }
     }
 
+    // Directly assign the lockResponse to reduce the info transfering latency
+    io.lockResponse.payload.channelID :=  io.channelIdx
+    io.lockResponse.payload.tableIdx  :=  0
+    io.lockResponse.payload.lockID    :=  rLockReq.lockID
+    io.lockResponse.payload.granted   := rRespTypeGrant
+    io.lockResponse.payload.waiting   := rRespTypeWait
+    io.lockResponse.payload.aborted   := rRespTypeAbort
+    io.lockResponse.payload.released  := rRespTypeRelease
     when(rRespByPop){
-      io.lockResponse.payload :=  rLockRespFromWait
+      // io.lockResponse.payload :=  rLockRespFromWait // The lock response Grant/Abort is one cycle late, so the current lock response is not the latest info
+      io.lockResponse.payload.srcNode    :=  waitEntry.srcNode
+      io.lockResponse.payload.srcTxnMan  :=  waitEntry.srcTxnMan
+      io.lockResponse.payload.srcTxnIdx  :=  waitEntry.srcTxnIdx
+      io.lockResponse.payload.toRelease  :=  False
+      io.lockResponse.payload.txnTimeOut :=  False
+      // io.lockResponse.payload.channelID :=  io.channelIdx
+      // io.lockResponse.payload.tableIdx  :=  0
+      // io.lockResponse.payload.lockID    :=  rLockReq.lockID
+      io.lockResponse.payload.lockType   :=  waitEntry.lockType
+      io.lockResponse.payload.rwLength   :=  waitEntry.rwLength
+      // io.lockResponse.payload.granted  := rRespTypeGrant
+      // io.lockResponse.payload.waiting  := rRespTypeWait
+      // io.lockResponse.payload.aborted  := rRespTypeAbort
+      // io.lockResponse.payload.released := rRespTypeRelease
     } otherwise {
-      io.lockResponse.payload :=  rLockRespFromReq
+      // io.lockResponse.payload :=  rLockRespFromReq // The lock response Grant/Abort is one cycle late,
+      io.lockResponse.payload.srcNode    :=  rLockReq.srcNode
+      io.lockResponse.payload.srcTxnMan  :=  rLockReq.srcTxnMan
+      io.lockResponse.payload.srcTxnIdx  :=  rLockReq.srcTxnIdx
+      io.lockResponse.payload.toRelease  :=  rLockReq.toRelease
+      io.lockResponse.payload.txnTimeOut :=  rLockReq.txnTimeOut
+      // io.lockResponse.payload.channelID :=  io.channelIdx
+      // io.lockResponse.payload.tableIdx  :=  0
+      // io.lockResponse.payload.lockID    :=  rLockReq.lockID
+      io.lockResponse.payload.lockType   :=  rLockReq.lockType
+      io.lockResponse.payload.rwLength   :=  rLockReq.rwLength
+      // io.lockResponse.payload.granted  := rRespTypeGrant
+      // io.lockResponse.payload.waiting  := rRespTypeWait
+      // io.lockResponse.payload.aborted  := rRespTypeAbort
+      // io.lockResponse.payload.released := rRespTypeRelease
     }
     io.lockResponse.valid := isActive(LOCK_RESP)
     LOCK_RESP.whenIsActive {

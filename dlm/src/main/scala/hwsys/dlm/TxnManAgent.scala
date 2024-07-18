@@ -87,7 +87,7 @@ trait MinSysConfig {
     def nTxnMem    = nTxnCS * maxTxnLen // nTxnMem * wLockEntry = space of on-chip mem 
     def wTxnMemAddr = log2Up(nTxnMem)
     def wTxnMemLock = log2Up(wLockEntry) // shift size of one lock entry
-    def wTxnMemUnit = log2Up(maxTxnLen * wLockEntry) // shift size of one txn entry 
+    def wTxnMemUnit = log2Up(maxTxnLen) + log2Up(wLockEntry)// shift size of one txn entry 
     def AXI_DATA_BITS = 512
     def AXI_ADDR_BITS = 64
     def AXI_LOAD_BEAT = maxTxnLen * wLockEntry / AXI_DATA_BITS
@@ -355,14 +355,14 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     // conditions: when to start/end sending lock Get requests
     val lkReqFire       = lkReqGetLoc.fire || lkReqGetRmt.fire
     val startLockGetReq = rLoaded(curTxnIdx) && ~rGetSent(curTxnIdx) && ~rAbort(curTxnIdx)
-    val endLockGetReq   = (lkReqFire && (reqIdx === (txnLen - 1))) || rAbort(curTxnIdx)
+    val endLockGetReq   = (lkReqFire && (reqIdx === (txnLen))) || rAbort(curTxnIdx) // CS_TXN adds 1 to reqIdx, so the reqIdx should = txnLen
     val isLocal         = memReadData.nodeID === io.nodeIdx
     for (e <- Seq(lkReqGetLoc, lkReqGetRmt))
       e.payload := memReadData.toLockRequest(io.nodeIdx, io.txnManIdx, curTxnIdx.resize(conf.wTxnIdx), False, False, reqIdx) // not toRelease = Get, not timeOut
 
     CS_TXN.whenIsActive {
       when(startLockGetReq) { // The current read in data is TxnLen
-        txnLen := memReadData.asBits(conf.wMaxTxnLen - 1 downto 0).asUInt
+        txnLen := memReadData.asBits(conf.wMaxTxnLen-1 downto 0).asUInt
         reqIdx := reqIdx + 1  // Next cycle in SEND_REQ gets the first lock entry
         goto(SEND_REQ)
       } otherwise {
@@ -441,7 +441,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       wrDataQ.ready    := False
       // write the data from lockReleaseWrite request: one aw config will triger rwLen Writes 
       // val aw_len = U(lockRequestWrote.rwLength -1)
-      io.loadAXI.aw.addr := (lockRequestWrote.lockID << (log2Up(512/8)+conf.wRWLength) + lockRequestWrote.channelID << conf.MEM_CH_SIZE).resized // address: 16-bit + 6 + 2 = 24 bits. So txnMem should start from 1<<25. Writes in diff lockIDs have no conflict.
+      io.loadAXI.aw.addr := (lockRequestWrote.lockID << (log2Up(512/8)) + lockRequestWrote.channelID << conf.MEM_CH_SIZE).resized // address: 16-bit + 6 + 2 = 24 bits. So txnMem should start from 1<<25. Writes in diff lockIDs have no conflict.
       io.loadAXI.aw.id   := 0  // not necessary because only use loadAXI Write once
       io.loadAXI.aw.len  := (lockRequestWrote.rwLength -1).resized // aw.length is Read/Write length - 1 because aw.len=0 is 1 write
       io.loadAXI.aw.size := log2Up(512/8) // 512-bit = 64 byte
@@ -542,7 +542,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       }       
     }
 
-    io.dataAXI.ar.addr := (rLkResp.lockID << (log2Up(512/8)+conf.wRWLength) + rLkResp.channelID << conf.MEM_CH_SIZE).resized 
+    io.dataAXI.ar.addr := (rLkResp.lockID << (log2Up(512/8)) + rLkResp.channelID << conf.MEM_CH_SIZE).resized 
     io.dataAXI.ar.id   := rLkResp.srcTxnMan.resized
     io.dataAXI.ar.len  := (rLkResp.rwLength - 1).resized
     io.dataAXI.ar.size := log2Up(512 / 8)
@@ -660,7 +660,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     val txnMemAddrBase = curTxnIdx << conf.wMaxTxnLen // Mem unit is one LockEntry, so base address is TxnIdx * MaxTxnLen
     val commitLockWrite = MemLockWriteLoc.readSync(txnMemAddrBase + cntDataWroteLoc(curTxnIdx)) //
     val rCommitLockWrite = RegNext(commitLockWrite)
-    val commitCondition  = rLoaded(curTxnIdx) && rGetSent(curTxnIdx) && rGrantAllLock(curTxnIdx) && ~rDataWroteLoc(curTxnIdx) && ~rAbort(curTxnIdx) && ~rTimeOut(curTxnIdx)
+    val commitCondition  = rLoaded(curTxnIdx) && rGetSent(curTxnIdx) && rGrantAllLock(curTxnIdx) && ~rDataWroteLoc(curTxnIdx) && ~rAbort(curTxnIdx) && ~rTimeOut(curTxnIdx) && (cntDataWroteLoc(curTxnIdx) < cntLockwWriteLoc(curTxnIdx))
 
     CS_TXN.whenIsActive {
       when(commitCondition) {
@@ -670,7 +670,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       }
     }
 
-    io.dataAXI.aw.addr := (commitLockWrite.lockID << (log2Up(512/8)+conf.wRWLength) + commitLockWrite.channelID << conf.MEM_CH_SIZE).resized
+    io.dataAXI.aw.addr := (commitLockWrite.lockID << (log2Up(512/8)) + commitLockWrite.channelID << conf.MEM_CH_SIZE).resized // The memory boundary Index 364527616 out of bounds for length 4096
     io.dataAXI.aw.id   := curTxnIdx.resized
     io.dataAXI.aw.len  := (commitLockWrite.rwLength - 1).resized
     io.dataAXI.aw.size := log2Up(512 / 8)

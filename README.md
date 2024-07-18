@@ -60,6 +60,9 @@ Simulation: `WrapNodeNetSim` is a testbench defined in [WrapNodeNetSim.scala](ht
 $ mill dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 ./mill-0.10.4 dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 .\mill-0.10.3-assembly.bat dlm.runMain hwsys.dlm.test.WrapNodeNetSim
+On Linux Mint:
+./mill-0.10.4 dlm.runMain hwsys.dlm.test.TableSim
+./mill-0.10.4 dlm.runMain hwsys.dlm.test.CoreSim
 ```
 
 ## Linux Mint / Ubuntu / Debian Setup
