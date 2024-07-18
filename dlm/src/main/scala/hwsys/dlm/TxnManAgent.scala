@@ -48,15 +48,15 @@ trait MinSysConfig {
     // Lock table details
     val wOwnerCnt = 8
     def wHashTable  = 16 // 16-bit address is the same as lockKey width
-    def nHashValue = 1 << wHashTable
+    def nHashValue = (1 << (wHashTable))
     def wLinkList   = 13 // depth of LL
     def wLinkListOffset = 6
-    def nLinkListEntry  = 1 << wLinkList 
-    def maxLinkListAddr = nLinkListEntry - 1
+    def nLinkListEntry  = (1 << (wLinkList)) 
+    def maxLinkListAddr = (nLinkListEntry - 1)
     def maxCheckEmpty = 8 // how many empty waitQ slots should be checked when inserting a new waitEntry
     def nLLEncoderInput = 8
-    def wHashValueNW = 1 + wOwnerCnt // 1-bit lock status (ex/sh)
-    def wHashValueBW = 1 + wOwnerCnt + wLinkListOffset + 1 // 1-bit lock status (ex/sh), 1-bit WaitQ valid or not
+    def wHashValueNW = (1 + wOwnerCnt) // 1-bit lock status (ex/sh)
+    def wHashValueBW = (1 + wOwnerCnt + wLinkListOffset + 1) // 1-bit lock status (ex/sh), 1-bit WaitQ valid or not
 
     // CC mode: "NW (no wait)", "BW (bounded wait)", "TSO (timestamp ordering)"
     // def ccProt = "NW"
@@ -84,15 +84,15 @@ trait MinSysConfig {
     )
 
     // The TxnMem in TxnMan and AXI Mem constants
-    def nTxnMem    = nTxnCS * maxTxnLen // nTxnMem * wLockEntry = space of on-chip mem 
+    def nTxnMem    = (nTxnCS * maxTxnLen) // nTxnMem * wLockEntry = space of on-chip mem 
     def wTxnMemAddr = log2Up(nTxnMem)
     def wTxnMemLock = log2Up(wLockEntry) // shift size of one lock entry
     def wTxnMemUnit = log2Up(maxTxnLen) + log2Up(wLockEntry)// shift size of one txn entry 
     def AXI_DATA_BITS = 512
     def AXI_ADDR_BITS = 64
-    def AXI_LOAD_BEAT = maxTxnLen * wLockEntry / AXI_DATA_BITS
+    def AXI_LOAD_BEAT = (maxTxnLen * wLockEntry / AXI_DATA_BITS)
     def AXI_DATA_SIZE = log2Up(512/8) // each beat read in 512-bit data. AXI-Mem data line size = 512-bit e.g., size=2: 32-bit, size=3: 64 bit...
-    def LOCK_PER_AXI_DATA = AXI_DATA_BITS / wLockEntry
+    def LOCK_PER_AXI_DATA = (AXI_DATA_BITS / wLockEntry)
     def MEM_RW_SIZE = 28 // AXI read and write from a 28-bit space for every node. 4-bit channel, 16-bit lockID, + 8-bit=64 Byte RW unit
     def MEM_CH_SIZE = 24 
 
@@ -266,8 +266,11 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     // current Txn Index and where to load
     val curTxnIdx    = Reg(UInt(log2Up(conf.nTxnCS) bits)).init(0)
     val cntTxnLoaded = Reg(UInt(48 bits)).init(0)
-    val loadToAddr   = (curTxnIdx << conf.wMaxTxnLen + cntTxnLen.value).resize(conf.wMaxTxnLen + log2Up(conf.nTxnCS))  // MemTxn's unit is one lock entry. 
-    val loadFromAddr = (cntTxnLoaded + io.loadAddrBase) << conf.wTxnMemUnit // load from AXI memory, the unit is one txn entry
+    val loadToAddr   = curTxnIdx ## cntTxnLen.value
+    // val loadToAddr   = Bits(conf.wMaxTxnLen + log2Up(conf.nTxnCS) bits)
+    // loadToAddr(0,                   conf.wMaxTxnLen bits) := cntTxnLen.valueNext  // MemTxn's unit is one lock entry. 
+    // loadToAddr(conf.wMaxTxnLen, log2Up(conf.nTxnCS) bits) := curTxnIdx
+    val loadFromAddr = ((cntTxnLoaded + io.loadAddrBase) << (conf.wTxnMemUnit)) // load from AXI memory, the unit is one txn entry
     io.cntTxnLd     := cntTxnLoaded.resized
 
     // IDLE: wait start signal
@@ -316,7 +319,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       // extract the locks from read_data one-by-one
       val curLock = LockEntryMin(conf)
       curLock.assignFromBits(loadAXIDataSlice(cntLockPerRead)) // get lock use relative addr: cntLock per Read
-      MemTxn.write(loadToAddr, curLock, rTxnMemLd) // write this lock entry to MemTxn
+      MemTxn.write(loadToAddr.asUInt, curLock, rTxnMemLd) // write this lock entry to MemTxn
       // conditions 
       when(io.loadAXI.r.fire)(rTxnMemLd.set())
       when(cntLockPerRead.willOverflow)(rTxnMemLd.clear()) // clear it to read in next 512-bit
@@ -345,11 +348,11 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     *******************************************************************/
   val aLockGetRequestCenter = new StateMachine {
     val CS_TXN = new State with EntryPoint
-    val SEND_REQ = new State
+    val GET_LEN, SEND_REQ = new State
     // current TxnIdx, ReqIdx, and memory address 
     val curTxnIdx      = Reg(UInt(log2Up(conf.nTxnCS) bits)).init(0)
     val txnLen, reqIdx = Reg(UInt(conf.wMaxTxnLen bits)).init(0)
-    val txnMemAddrBase = curTxnIdx << conf.wMaxTxnLen
+    val txnMemAddrBase = (curTxnIdx << (conf.wMaxTxnLen))
     val txnMemAddr     = txnMemAddrBase + reqIdx // reqIdx is 0: read in TxnLen, reqIdx > 0: read in lock entry
     val memReadData    = MemTxn.readSync(txnMemAddr)
     // conditions: when to start/end sending lock Get requests
@@ -362,13 +365,19 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
 
     CS_TXN.whenIsActive {
       when(startLockGetReq) { // The current read in data is TxnLen
-        txnLen := memReadData.asBits(conf.wMaxTxnLen-1 downto 0).asUInt
+        // txnLen := memReadData.asBits(conf.wMaxTxnLen-1 downto 0).asUInt // The memRead result comes at next cycle
         reqIdx := reqIdx + 1  // Next cycle in SEND_REQ gets the first lock entry
-        goto(SEND_REQ)
+        goto(GET_LEN)
       } otherwise {
+        txnLen := 0
         reqIdx.clearAll()
         curTxnIdx := curTxnIdx + 1
       }
+    }
+
+    GET_LEN.whenIsActive{
+      txnLen := (memReadData.tableID ## memReadData.channelID ## memReadData.nodeID).asUInt.resized
+      goto(SEND_REQ)
     }
 
     lkReqGetLoc.valid :=  isLocal && isActive(SEND_REQ) // issue lkReq to local / remote ports
@@ -441,7 +450,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       wrDataQ.ready    := False
       // write the data from lockReleaseWrite request: one aw config will triger rwLen Writes 
       // val aw_len = U(lockRequestWrote.rwLength -1)
-      io.loadAXI.aw.addr := (lockRequestWrote.lockID << (log2Up(512/8)) + lockRequestWrote.channelID << conf.MEM_CH_SIZE).resized // address: 16-bit + 6 + 2 = 24 bits. So txnMem should start from 1<<25. Writes in diff lockIDs have no conflict.
+      io.loadAXI.aw.addr := ((lockRequestWrote.lockID << (log2Up(512/8))) + (lockRequestWrote.channelID << (conf.MEM_CH_SIZE))).resized // address: 16-bit + 6 + 2 = 24 bits. So txnMem should start from 1<<25. Writes in diff lockIDs have no conflict.
       io.loadAXI.aw.id   := 0  // not necessary because only use loadAXI Write once
       io.loadAXI.aw.len  := (lockRequestWrote.rwLength -1).resized // aw.length is Read/Write length - 1 because aw.len=0 is 1 write
       io.loadAXI.aw.size := log2Up(512/8) // 512-bit = 64 byte
@@ -505,7 +514,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
           is(True){
             when(io.localLockResp.granted) {
               cntLockHoldLoc(curTxnIdx) := cntLockHoldLoc(curTxnIdx) + 1 // local response, grant + 1
-              when(io.localLockResp.lockType.read)(goto(MEM_READ)) // issue local Read once get the lock
+              when(io.localLockResp.lockType.read)(goto(MEM_ADDR)) // issue local Read once get the lock
             } elsewhen(io.localLockResp.waiting) {
               cntLockWaitLoc(curTxnIdx) := cntLockWaitLoc(curTxnIdx) + 1
             } elsewhen(io.localLockResp.aborted) {
@@ -535,14 +544,14 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     SEND_REMOTE.whenIsActive{
       when(io.toRemoteLockResp.fire){
         when(rLkResp.granted && rLkResp.lockType.read){
-          goto(MEM_READ)
+          goto(MEM_ADDR)
         } otherwise{
           goto(WAIT_RESP)
         }
       }       
     }
 
-    io.dataAXI.ar.addr := (rLkResp.lockID << (log2Up(512/8)) + rLkResp.channelID << conf.MEM_CH_SIZE).resized 
+    io.dataAXI.ar.addr := ((rLkResp.lockID << (log2Up(512/8))) + (rLkResp.channelID << (conf.MEM_CH_SIZE))).resized 
     io.dataAXI.ar.id   := rLkResp.srcTxnMan.resized
     io.dataAXI.ar.len  := (rLkResp.rwLength - 1).resized
     io.dataAXI.ar.size := log2Up(512 / 8)
@@ -557,10 +566,18 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
 
     // read data send to toRemoteRead
     io.toRemoteRead.payload := io.dataAXI.r.data
-    io.toRemoteRead.valid   := isActive(MEM_READ) && io.dataAXI.r.fire && (rLkResp.srcNode =/= io.nodeIdx) // FIXME: No gurantee to send out the data
+    io.toRemoteRead.valid   := isActive(MEM_READ) && io.dataAXI.r.valid && (rLkResp.srcNode =/= io.nodeIdx) 
     io.dataAXI.r.ready := True // always accept the data read result in MEM_READ state
     MEM_READ.whenIsActive {
-      when(cntRead === rLkResp.rwLength)(goto(WAIT_RESP))    // when data has all read, go back to WAIT_RESP
+      when(rLkResp.srcNode =/= io.nodeIdx){ // remote data read
+        io.dataAXI.r.ready := io.toRemoteRead.ready // FIXED: No gurantee to send out the data
+        when(cntRead === rLkResp.rwLength)(goto(WAIT_RESP))    // when data has all read, go back to WAIT_RESP
+      } otherwise { // local data read
+        when(cntRead === rLkResp.rwLength){
+          cntDataReadLoc(rCurTxnIdx) := cntDataReadLoc(rCurTxnIdx) + 1
+          goto(WAIT_RESP)    // when data has all read, go back to WAIT_RESP
+        }
+      }
     }
 
     /** Txn release cases:
@@ -568,16 +585,16 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
      * 2, timeOut: release locks = LockGetSent
      * 3, normal end: release locks = LockGetSent
      */
-    val releaseCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(rFire && releaseCondition) {
+    val releaseDoneCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
+    when(releaseDoneCondition) {
       rReleaseDone(rCurTxnIdx).set()
       rLoaded(rCurTxnIdx).clear()
       when(rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx))(io.cntTxnAbt := io.cntTxnAbt + 1) otherwise (io.cntTxnCmt := io.cntTxnCmt + 1)
     }
-    val grantedAllCondition = (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(rFire && grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
+    val grantedAllCondition = rLoaded(rCurTxnIdx) && rGetSent(rCurTxnIdx) && (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
+    when(grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
     val readAllCondition = rGetSent(rCurTxnIdx) && (cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx)) && (cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx))
-    when(rFire && readAllCondition) { // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 80 local lock + 1 remote lock.
+    when(readAllCondition) { // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 80 local lock + 1 remote lock.
       rDataReadRmt(rCurTxnIdx) := True // now set both counters at local and remote response handlers to ensure instant flag set and correctness
       rDataReadLoc(rCurTxnIdx) := True
     }
@@ -606,7 +623,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
           }elsewhen(io.fromRemoteLockResp.aborted) {
             rAbort(curTxnIdx) := True // FIXME: rAbort set conflict
             io.cntLockDenyRmt := io.cntLockDenyRmt + 1
-            cntLockReleasedRmt(curTxnIdx) := cntLockReleasedRmt(curTxnIdx) + 1
+            // cntLockReleasedRmt(curTxnIdx) := cntLockReleasedRmt(curTxnIdx) + 1 // Now we don't record the number of aborted locks, so all sent locks will be released
           }elsewhen(io.fromRemoteLockResp.released) {
             cntLockReleasedRmt(curTxnIdx) := cntLockReleasedRmt(curTxnIdx) + 1
           }
@@ -631,15 +648,15 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     * 3, normal end: release locks = LockGetSent
     */
     val releaseCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(rFire && releaseCondition) {
+    when(releaseCondition) {
       rReleaseDone(rCurTxnIdx).set()
       rLoaded(rCurTxnIdx).clear()
       when(rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx))(io.cntTxnAbt := io.cntTxnAbt + 1) otherwise (io.cntTxnCmt := io.cntTxnCmt + 1)
     }
-    val grantedAllCondition = (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(rFire && grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
-    val readAllCondition = rGetSent(rCurTxnIdx) && cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx) && cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx)
-    when(rFire && readAllCondition){ // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 10 local lock + 1 remote lock.
+    val grantedAllCondition = rGetSent(rCurTxnIdx) && (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
+    when(grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
+    val readAllCondition = rGetSent(rCurTxnIdx) && (cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx)) && (cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx))
+    when(readAllCondition){ // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 10 local lock + 1 remote lock.
       rDataReadRmt(rCurTxnIdx) := True // now set both counters at local and remote response handlers to ensure instant flag set and correctness
       rDataReadLoc(rCurTxnIdx) := True
     }
@@ -657,20 +674,25 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
      * 3. no timeout
      * */
     val curTxnIdx = Reg(UInt(log2Up(conf.nTxnCS) bits)).init(0)
-    val txnMemAddrBase = curTxnIdx << conf.wMaxTxnLen // Mem unit is one LockEntry, so base address is TxnIdx * MaxTxnLen
+    val txnMemAddrBase = (curTxnIdx << (conf.wMaxTxnLen)) // Mem unit is one LockEntry, so base address is TxnIdx * MaxTxnLen
     val commitLockWrite = MemLockWriteLoc.readSync(txnMemAddrBase + cntDataWroteLoc(curTxnIdx)) //
     val rCommitLockWrite = RegNext(commitLockWrite)
     val commitCondition  = rLoaded(curTxnIdx) && rGetSent(curTxnIdx) && rGrantAllLock(curTxnIdx) && ~rDataWroteLoc(curTxnIdx) && ~rAbort(curTxnIdx) && ~rTimeOut(curTxnIdx) && (cntDataWroteLoc(curTxnIdx) < cntLockwWriteLoc(curTxnIdx))
+    val setDataWroteLoc  = rLoaded(curTxnIdx) && rGetSent(curTxnIdx) && (cntDataWroteLoc(curTxnIdx) === cntLockwWriteLoc(curTxnIdx))
 
     CS_TXN.whenIsActive {
       when(commitCondition) {
         goto(LOCAL_AW)
       } otherwise {
+        when(setDataWroteLoc)(rDataWroteLoc(curTxnIdx) := True) // move the assignment out of the LOCAL_W state: if 0 write data, then no need to wrote
         curTxnIdx := curTxnIdx + 1
       }
     }
 
-    io.dataAXI.aw.addr := (commitLockWrite.lockID << (log2Up(512/8)) + commitLockWrite.channelID << conf.MEM_CH_SIZE).resized // The memory boundary Index 364527616 out of bounds for length 4096
+    // ERROR: The memory boundary Index 364527616 out of bounds for length 4096
+    // Solution: Use (()) to avoid any unclear data shift
+    // io.dataAXI.aw.addr := (commitLockWrite.lockID << (log2Up(512/8)) + commitLockWrite.channelID << conf.MEM_CH_SIZE).resized 
+    io.dataAXI.aw.addr := ((commitLockWrite.lockID << (log2Up(512/8))) + (commitLockWrite.channelID << (conf.MEM_CH_SIZE))).resized 
     io.dataAXI.aw.id   := curTxnIdx.resized
     io.dataAXI.aw.len  := (commitLockWrite.rwLength - 1).resized
     io.dataAXI.aw.size := log2Up(512 / 8)
@@ -698,8 +720,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
         nBeat.clearAll()
         when(cntDataWroteLoc(curTxnIdx) < cntLockwWriteLoc(curTxnIdx)) { // if there are more DataWrites to issue
           goto(LOCAL_AW)
-        }otherwise{
-          rDataWroteLoc(curTxnIdx) := True // all local data has been written/committed
+        }otherwise{ // all local data has been written/committed
           goto(CS_TXN)
         }
       }
@@ -711,7 +732,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
    * ***************************************************************** */
   val aLockReleaseCenter = new StateMachine {
     val CS_TXN = new State with EntryPoint
-    val RELEASE_LOCK, REMOTE_WRITE = new State
+    val GET_ENTRY, RELEASE_LOCK, REMOTE_WRITE = new State
     /** Release conditions
      * 1, normal case: Loaded, LockGetSent, GrantedAllLock, DataReadLocal, DataReadRemote, DataWroteLocal, not ReleaseSent
      * 2. rAbort: Loaded, not ReleaseSent
@@ -719,21 +740,34 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
      * To release locks == LockGetSent - Aborted locks...
      * */
     val curTxnIdx      = Reg(UInt(log2Up(conf.nTxnCS) bits)).init(0)
-    val txnMemAddrBase = curTxnIdx << conf.wMaxTxnLen
+    val txnMemAddrBase = (curTxnIdx << (conf.wMaxTxnLen))
     val reqIdx         = cntLockRlseSentLoc(curTxnIdx) + cntLockRlseSentRmt(curTxnIdx)
-    val lockEntry      = MemTxn.readSync(txnMemAddrBase + reqIdx)
-    val normalReleaseCondition = rGetSent(curTxnIdx) && rGrantAllLock(curTxnIdx) && rDataReadLoc(curTxnIdx) && rDataReadRmt(curTxnIdx) && rDataWroteLoc(curTxnIdx)
-    val releaseCondition       = rLoaded(curTxnIdx) && (rTimeOut(curTxnIdx) || rAbort(curTxnIdx) || normalReleaseCondition) && ~rReleaseSent(curTxnIdx)
-    val isLocal                = lockEntry.nodeID === io.nodeIdx
+    val lockEntryAddr  = txnMemAddrBase + reqIdx + 1 // + 1 because the first entry is the txn length, not a valid lockEntry
+    val lockEntry      = MemTxn.readSync(lockEntryAddr)
+    val ifNormalRelease  = rGetSent(curTxnIdx) && rGrantAllLock(curTxnIdx) && rDataReadLoc(curTxnIdx) && rDataReadRmt(curTxnIdx) && rDataWroteLoc(curTxnIdx)
+    val releaseCondition = rLoaded(curTxnIdx) && (rTimeOut(curTxnIdx) || rAbort(curTxnIdx) || ifNormalRelease) && (~rReleaseSent(curTxnIdx))
+    val ifReturnToCSLoc  = (cntLockRlseSentLoc(curTxnIdx) === cntLockGetSentLoc(curTxnIdx) - 1) && (cntLockRlseSentRmt(curTxnIdx) === cntLockGetSentRmt(curTxnIdx))
+    val ifReturnToCSRmt  = (cntLockRlseSentLoc(curTxnIdx) === cntLockGetSentLoc(curTxnIdx))     && (cntLockRlseSentRmt(curTxnIdx) === cntLockGetSentRmt(curTxnIdx) - 1)
+    val setReleaseSent   = (cntLockRlseSentLoc(curTxnIdx) === cntLockGetSentLoc(curTxnIdx))     && (cntLockRlseSentRmt(curTxnIdx) === cntLockGetSentRmt(curTxnIdx)) && ifNormalRelease
+    val setDataWroteRmt  = (cntDataWroteRmt(curTxnIdx) === cntLockwWriteRmt(curTxnIdx)) && ifNormalRelease
 
     CS_TXN.whenIsActive {
+      curTxnIdx := curTxnIdx + 1
+      goto(GET_ENTRY)
+    }
+
+    GET_ENTRY.whenIsActive{
+      when(setDataWroteRmt)(rDataWroteRmt(curTxnIdx) := True)
+      when(setReleaseSent)(rReleaseSent(curTxnIdx) := True)
       when(releaseCondition) {
         goto(RELEASE_LOCK)
       } otherwise {
-        curTxnIdx := curTxnIdx + 1
+        goto(CS_TXN)
       }
     }
 
+    // FIXME: check the clock cycles
+    val isLocal           = lockEntry.nodeID === io.nodeIdx
     lkReqRlseLoc.payload := lockEntry.toLockRequest(io.nodeIdx, io.txnManIdx, curTxnIdx.resize(conf.wTxnIdx), True, rAbort(curTxnIdx) || rTimeOut(curTxnIdx), reqIdx)
     lkReqRlseRmt.payload := lockEntry.toLockRequest(io.nodeIdx, io.txnManIdx, curTxnIdx.resize(conf.wTxnIdx), True, rAbort(curTxnIdx) || rTimeOut(curTxnIdx), reqIdx)
     lkReqRlseLoc.valid   :=  isLocal && isActive(RELEASE_LOCK)
@@ -742,15 +776,21 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     RELEASE_LOCK.whenIsActive { // FIXME: how to skip the aborted locks...
       when(lkReqRlseLoc.fire) {
         cntLockRlseSentLoc(curTxnIdx) := cntLockRlseSentLoc(curTxnIdx) + 1
-        when((cntLockRlseSentLoc(curTxnIdx) === cntLockGetSentLoc(curTxnIdx) - 1) && (cntLockRlseSentRmt(curTxnIdx) === cntLockGetSentRmt(curTxnIdx)))(rReleaseSent(curTxnIdx) := True)
-        goto(CS_TXN) // fire -> cntSent+1 / Address updated -> read out the next lock Entry, so go back to CS_SWITCH to wait for the read out data
+        when(ifReturnToCSLoc){
+          rReleaseSent(curTxnIdx) := True
+          goto(CS_TXN)
+        }
+        // fire -> cntSent+1 / Address updated -> read out the next lock Entry, so go back to CS_SWITCH to wait for the read out data
       }
       when(lkReqRlseRmt.fire) {
         cntLockRlseSentRmt(curTxnIdx) := cntLockRlseSentRmt(curTxnIdx) + 1
-        when((cntLockRlseSentLoc(curTxnIdx) === cntLockGetSentLoc(curTxnIdx)) && (cntLockRlseSentRmt(curTxnIdx) === cntLockGetSentRmt(curTxnIdx) - 1))(rReleaseSent(curTxnIdx) := True)
-        switch(lockEntry.lockType.write){
-          is(True) (goto(REMOTE_WRITE))
-          is(False)(goto(CS_TXN))
+        when(lockEntry.lockType.write){
+          goto(REMOTE_WRITE)
+        }otherwise{
+          when(ifReturnToCSRmt){
+            rReleaseSent(curTxnIdx) := True
+            goto(CS_TXN)
+          }
         }
       }
     }
@@ -762,8 +802,14 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
       when(io.toRemoteWrite.fire) {
         nBeat := nBeat + 1
         when(nBeat === lockEntry.rwLength - 1) {
+          cntDataWroteRmt(curTxnIdx) := cntDataWroteRmt(curTxnIdx) + 1
           nBeat.clearAll()
-          goto(CS_TXN)
+          when(ifReturnToCSRmt){
+            rReleaseSent(curTxnIdx) := True
+            goto(CS_TXN)
+          } otherwise{
+            goto(RELEASE_LOCK)
+          }
         }
       }
     }
