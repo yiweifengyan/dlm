@@ -267,10 +267,7 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     val curTxnIdx    = Reg(UInt(log2Up(conf.nTxnCS) bits)).init(0)
     val cntTxnLoaded = Reg(UInt(48 bits)).init(0)
     val loadToAddr   = curTxnIdx ## cntTxnLen.value
-    // val loadToAddr   = Bits(conf.wMaxTxnLen + log2Up(conf.nTxnCS) bits)
-    // loadToAddr(0,                   conf.wMaxTxnLen bits) := cntTxnLen.valueNext  // MemTxn's unit is one lock entry. 
-    // loadToAddr(conf.wMaxTxnLen, log2Up(conf.nTxnCS) bits) := curTxnIdx
-    val loadFromAddr = ((cntTxnLoaded + io.loadAddrBase) << (conf.wTxnMemUnit)) // load from AXI memory, the unit is one txn entry
+    val loadFromAddr = ((cntTxnLoaded + io.loadAddrBase) << ((conf.wMaxTxnLen) + log2Up(conf.wLockEntry / 8))) // load from AXI memory, the unit is one txn entry
     io.cntTxnLd     := cntTxnLoaded.resized
 
     // IDLE: wait start signal
@@ -505,6 +502,29 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     val rLkResp    = RegNextWhen(io.localLockResp, io.localLockResp.fire)
     val rFire      = RegNext(io.localLockResp.fire, False)
 
+    /** Txn release cases:
+     * 1, send 1 req and aborted (release 0 lock), send reqs and aborted (release locks  = LockGetSent - 1): so aborted lock counts as 1 released lock
+     * 2, timeOut: release locks = LockGetSent
+     * 3, normal end: release locks = LockGetSent
+     */
+    val releaseDoneCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
+    when(releaseDoneCondition) {
+      rReleaseDone(rCurTxnIdx).set()
+      rLoaded(rCurTxnIdx).clear()
+    }
+    val txnDoneCondition = rFire && rLoaded(rCurTxnIdx) && releaseDoneCondition && rLkResp.srcNode === io.nodeIdx
+    val txnAbortCondition = rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)
+    when(txnDoneCondition){
+      when(txnAbortCondition)(io.cntTxnAbt := io.cntTxnAbt + 1) otherwise (io.cntTxnCmt := io.cntTxnCmt + 1)
+    }
+    val grantedAllCondition = rLoaded(rCurTxnIdx) && rGetSent(rCurTxnIdx) && (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
+    when(grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
+    val readAllCondition = rGetSent(rCurTxnIdx) && (cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx)) && (cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx))
+    when(readAllCondition) { // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 80 local lock + 1 remote lock.
+      rDataReadRmt(rCurTxnIdx) := True // now set both counters at local and remote response handlers to ensure instant flag set and correctness
+      rDataReadLoc(rCurTxnIdx) := True
+    }
+
     io.toRemoteLockResp.payload := rLkResp // The remote response go at this cycle, the Read data sends in next cycle
     io.toRemoteLockResp.valid   := isActive(SEND_REMOTE)
     io.localLockResp.ready      := isActive(WAIT_RESP) // both local and remote response needs MEM_READ
@@ -579,25 +599,6 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
         }
       }
     }
-
-    /** Txn release cases:
-     * 1, send 1 req and aborted (release 0 lock), send reqs and aborted (release locks  = LockGetSent - 1): so aborted lock counts as 1 released lock
-     * 2, timeOut: release locks = LockGetSent
-     * 3, normal end: release locks = LockGetSent
-     */
-    val releaseDoneCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(releaseDoneCondition) {
-      rReleaseDone(rCurTxnIdx).set()
-      rLoaded(rCurTxnIdx).clear()
-      when(rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx))(io.cntTxnAbt := io.cntTxnAbt + 1) otherwise (io.cntTxnCmt := io.cntTxnCmt + 1)
-    }
-    val grantedAllCondition = rLoaded(rCurTxnIdx) && rGetSent(rCurTxnIdx) && (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)
-    val readAllCondition = rGetSent(rCurTxnIdx) && (cntDataReadRmt(rCurTxnIdx) === cntLockwReadRmt(rCurTxnIdx)) && (cntDataReadLoc(rCurTxnIdx) === cntLockwReadLoc(rCurTxnIdx))
-    when(readAllCondition) { // Using Local-only or Remote-only conditions may cause local or remote read not set / set too early. e.g., 1 remote lock + 80 local lock + 1 remote lock.
-      rDataReadRmt(rCurTxnIdx) := True // now set both counters at local and remote response handlers to ensure instant flag set and correctness
-      rDataReadLoc(rCurTxnIdx) := True
-    }
   }
   
   /*******************************************************************
@@ -647,11 +648,15 @@ class TxnManAgent(conf: MinSysConfig) extends Component with RenameIO {
     * 2, timeOut: release locks = LockGetSent
     * 3, normal end: release locks = LockGetSent
     */
-    val releaseCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
-    when(releaseCondition) {
+    val releaseDoneCondition = (rReleaseSent(rCurTxnIdx) || rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)) && (cntLockReleasedLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockReleasedRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
+    when(releaseDoneCondition) {
       rReleaseDone(rCurTxnIdx).set()
       rLoaded(rCurTxnIdx).clear()
-      when(rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx))(io.cntTxnAbt := io.cntTxnAbt + 1) otherwise (io.cntTxnCmt := io.cntTxnCmt + 1)
+    }
+    val txnDoneCondition = rFire && rLoaded(rCurTxnIdx) && releaseDoneCondition && rLkResp.srcNode === io.nodeIdx
+    val txnAbortCondition = rAbort(rCurTxnIdx) || rTimeOut(rCurTxnIdx)
+    when(txnDoneCondition){
+      when(txnAbortCondition)(io.cntTxnAbt := io.cntTxnAbt + 1) otherwise (io.cntTxnCmt := io.cntTxnCmt + 1)
     }
     val grantedAllCondition = rGetSent(rCurTxnIdx) && (cntLockHoldLoc(rCurTxnIdx) === cntLockGetSentLoc(rCurTxnIdx)) && (cntLockHoldRmt(rCurTxnIdx) === cntLockGetSentRmt(rCurTxnIdx))
     when(grantedAllCondition)(rGrantAllLock(rCurTxnIdx) := True)

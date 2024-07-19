@@ -121,3 +121,103 @@ error opening scalactic x.x.x...
 
 Solution:
 https://get-coursier.io/docs/cli-fetch the scalactic package and paste the module dependency info into build.sc 
+
+LOG: TableSim works fine with 128 txns with 30 read requests.
+shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.4 dlm.runMain hwsys.dlm.test.TableSim
+[31/42] dlm.compile 
+[info] compiling 1 Scala source to /home/shaun/Documents/dlm/out/dlm/compile.dest/classes ...
+[info] done compiling
+[42/42] dlm.runMain 
+[Runtime] SpinalHDL v1.7.3    git head : aeaeece704fe43c766e0d36a93f2ecbb8a9f2003
+[Runtime] JVM max memory : 2478.0MiB
+[Runtime] Current date : 2024.07.19 16:31:58
+[Progress] at 0.000 : Elaborate components
+[Progress] at 0.843 : Checks and transforms
+[Progress] at 1.453 : Generate Verilog
+[Warning] toplevel/table_1/ht : Mem[65536*16 bits].readAsync can only be write first into Verilog
+[Warning] toplevel/table_1/ll : Mem[8192*24 bits].readAsync can only be write first into Verilog
+[Warning] 297 signals were pruned. You can call printPruned on the backend report to get more informations.
+[Done] at 1.883
+[Progress] Simulation workspace in /home/shaun/Documents/dlm/./simWorkspace/OneTxnManOneLockTable
+[Progress] Verilator compilation started
+[Progress] Verilator compilation done in 4892.287 ms
+[Progress] Start OneTxnManOneLockTable OneTxnManOneLockTable simulation with seed 99
+(Txn Context Length: ,16384)
+Adding page 0 at 0x0
+Adding page 0 at 0x0
+Adding page 1 at 0x100000
+Adding page 2 at 0x200000
+Adding page 3 at 0x300000
+Adding page 4 at 0x400000
+Adding page 5 at 0x500000
+Adding page 6 at 0x600000
+Adding page 7 at 0x700000
+Adding page 8 at 0x800000
+Adding page 9 at 0x900000
+Adding page 10 at 0xa00000
+Adding page 11 at 0xb00000
+Adding page 12 at 0xc00000
+Adding page 13 at 0xd00000
+Adding page 14 at 0xe00000
+Adding page 15 at 0xf00000
+Adding page 16 at 0x1000000
+Adding page 17 at 0x1100000
+Adding page 18 at 0x1200000
+Adding page 19 at 0x1300000
+Adding page 20 at 0x1400000
+Adding page 21 at 0x1500000
+Adding page 22 at 0x1600000
+Adding page 23 at 0x1700000
+Adding page 24 at 0x1800000
+Adding page 25 at 0x1900000
+Adding page 26 at 0x1a00000
+Adding page 27 at 0x1b00000
+Adding page 28 at 0x1c00000
+Adding page 29 at 0x1d00000
+Adding page 30 at 0x1e00000
+Adding page 31 at 0x1f00000
+Adding page 32 at 0x2000000
+Adding page 33 at 0x2100000
+Adding page 34 at 0x2200000
+Adding page 35 at 0x2300000
+Adding page 36 at 0x2400000
+Adding page 37 at 0x2500000
+Adding page 38 at 0x2600000
+Adding page 39 at 0x2700000
+Adding page 40 at 0x2800000
+Adding page 41 at 0x2900000
+Adding page 42 at 0x2a00000
+Adding page 43 at 0x2b00000
+Adding page 44 at 0x2c00000
+Adding page 45 at 0x2d00000
+Adding page 46 at 0x2e00000
+Adding page 47 at 0x2f00000
+Adding page 48 at 0x3000000
+Adding page 49 at 0x3100000
+Adding page 50 at 0x3200000
+Adding page 51 at 0x3300000
+Adding page 52 at 0x3400000
+Adding page 53 at 0x3500000
+Adding page 54 at 0x3600000
+Adding page 55 at 0x3700000
+Adding page 56 at 0x3800000
+Adding page 57 at 0x3900000
+Adding page 58 at 0x3a00000
+Adding page 59 at 0x3b00000
+Adding page 60 at 0x3c00000
+Adding page 61 at 0x3d00000
+Adding page 62 at 0x3e00000
+Adding page 63 at 0x3f00000
+Handling AXI4 Master read cmds...
+Handling AXI4 Master read resp...
+Handling AXI4 Master write cmds...
+Handling AXI4 Master write...
+Handling AXI4 Master read cmds...
+Handling AXI4 Master read resp...
+Handling AXI4 Master write cmds...
+Handling AXI4 Master write...
+[txnMan] cntTxnCmt: 128
+[txnMan] cntTxnAbt: 0
+[txnMan] cntTxnLd: 128
+[txnMan] cntClk: 38468
+[Done] Simulation done in 12497.288 ms

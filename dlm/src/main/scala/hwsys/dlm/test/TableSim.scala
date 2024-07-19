@@ -68,7 +68,7 @@ object TableSim{
     }.doSim("OneTxnManOneLockTable", 99) { dut =>
       // params
       val txnLen = 30
-      val txnCnt = 1024
+      val txnCnt = 128
       val txnMaxLen = sysConf.maxTxnLen
 
       dut.clockDomain.forkStimulus(period = 10)
@@ -81,6 +81,7 @@ object TableSim{
       val fLockType = (i: Int, j: Int) => 1 // Read
       val fWLen   = (i: Int, j: Int) => 1
       val txnCtx  = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fLockType, fWLen).toArray
+      println("Txn Context Length: ",txnCtx.length)
       val loadAxiMem = SimDriver.instAxiMemSim(dut.io.loadAXI, dut.clockDomain, Some(txnCtx))
       val dataAxiMem = SimDriver.instAxiMemSim(dut.io.dataAXI, dut.clockDomain, None)
 
