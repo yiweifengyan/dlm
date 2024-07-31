@@ -5,8 +5,9 @@ import mill._, scalalib._, scalafmt._
 val spinalVersion = "1.7.3"
 val scalaTestVersion = "3.2.11"
 
-trait CommonSpinalModule extends ScalaModule with ScalafmtModule with ScalafixModule {
-  def scalaVersion = "2.12.14"
+trait CommonSpinalModule extends ScalaModule with ScalafmtModule with ScalafixModule{
+  def scalaVersion = "2.12.19"
+
   def scalacOptions = Seq("-unchecked", "-deprecation", "-feature")
 
   def ivyDeps = Agg(

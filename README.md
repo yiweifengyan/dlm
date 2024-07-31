@@ -221,3 +221,27 @@ Handling AXI4 Master write...
 [txnMan] cntTxnLd: 128
 [txnMan] cntClk: 38468
 [Done] Simulation done in 12497.288 ms
+
+shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.4 dlm.runMain hwsys.dlm.test.TableSim
+[42/42] dlm.runMain 
+[Runtime] SpinalHDL v1.7.3    git head : aeaeece704fe43c766e0d36a93f2ecbb8a9f2003
+[Runtime] JVM max memory : 2478.0MiB
+[Runtime] Current date : 2024.07.31 15:16:23
+[Progress] at 0.000 : Elaborate components
+[Progress] at 0.982 : Checks and transforms
+[Progress] at 1.835 : Generate Verilog
+[Warning] toplevel/table_1/ht : Mem[65536*16 bits].readAsync can only be write first into Verilog
+[Warning] toplevel/table_1/ll : Mem[8192*24 bits].readAsync can only be write first into Verilog
+[Warning] 297 signals were pruned. You can call printPruned on the backend report to get more informations.
+[Done] at 2.455
+[Progress] Simulation workspace in /home/shaun/Documents/dlm/./simWorkspace/OneTxnManOneLockTable
+[Progress] Verilator compilation started
+[info] Found cached verilator binaries
+[Progress] Verilator compilation done in 4538.930 ms
+[Progress] Start OneTxnManOneLockTable OneTxnManOneLockTable simulation with seed 99
+(Txn Context Length: ,16384)
+[txnMan] cntTxnCmt: 128
+[txnMan] cntTxnAbt: 0
+[txnMan] cntTxnLd: 128
+[txnMan] cntClk: 133480
+[Done] Simulation done in 22555.227 ms

@@ -73,28 +73,35 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
 
   val rLockReq  = RegNextWhen(io.lockRequest.payload, io.lockRequest.fire) // Current Lock Request
   val hashEntry = Reg(HashValueBW(conf)) // current corresponding Lock
-  val waitEntry,  waitEntryOld, waitEntryNew = Reg(WaitEntryBW(conf))
-  val waitOffset, waitOffsetOld  = Reg(UInt(conf.wLinkListOffset bits)).init(0)
-  val waitEntryAddr = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffset
+  /* we have 3 waitEntry in use
+  ** 1, current one: waitEntry-waitOffset-waitEntryAddr-waitEntryIndex
+  ** 2, the new one: waitEntryNew-waitOffsetNew-waitEntryAddrNew. The entry to store/insert to waitQ. 
+                     Because reading out the LL has 1 cycle latency, so new waitOffset and Addr MAYBE 1 cycle late if checking >1 LL slots
+  ** 3, the old one: waitEntryOld-waitOffsetOld. To record the previous LL entry, it is the previous LL entry to connect the new waitEntry
+  */ 
+  val waitEntry,  waitEntryOld,  waitEntryNew   = Reg(WaitEntryBW(conf)) 
+  val waitOffset, waitOffsetOld, waitOffsetNew  = Reg(UInt(conf.wLinkListOffset bits)).init(0)
+  val cntCheckEmpty      = Reg(UInt(conf.wLinkListOffset bits)).init(0)
+  val cntWaitEntryViewed = Reg(UInt(conf.wLinkListOffset bits)).init(0)
+  val waitEntryAddr      = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffset
+  val waitEntryAddrNew   = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffsetNew 
   waitEntry := ll(waitEntryAddr)
-  val rLockReqIndex = rLockReq.srcNode.asBits ## rLockReq.srcTxnMan.asBits ## rLockReq.srcTxnIdx.asBits
-  val waitEIndex  =  waitEntry.srcNode.asBits ## waitEntry.srcTxnMan.asBits ## waitEntry.srcTxnIdx.asBits
+  val rLockReqIndex  =  rLockReq.srcNode.asBits ##  rLockReq.srcTxnMan.asBits ##  rLockReq.srcTxnIdx.asBits // identify the waitEntry and lockRelease request
+  val waitEntryIndex = waitEntry.srcNode.asBits ## waitEntry.srcTxnMan.asBits ## waitEntry.srcTxnIdx.asBits
 
   val htFSM = new StateMachine {
     val IDLE = new State with EntryPoint
-    val WAIT_REQ, HT_READ, LL_FIND_TAIL, LL_FIND_EMPTY, LL_POP, LL_DELETE, LOCK_RESP = new State
+    val WAIT_REQ, HT_READ, LL_READ_ENTRY, LL_FIND_TAIL, LL_FIND_EMPTY, LL_POP, LL_DELETE, LOCK_RESP = new State
 
     val rRespTypeGrant   = Reg(Bool()).init(False)
     val rRespTypeWait    = Reg(Bool()).init(False)
     val rRespTypeAbort   = Reg(Bool()).init(False)
     val rRespTypeRelease = Reg(Bool()).init(False)
     val rReturnToPop     = Reg(Bool()).init(False)
+    val rRespByPop       = Reg(Bool()).init(False)
     val rUpdateHashEntryAddr = Reg(Bool()).init(False)
     val rUpdateWaitEntryOld  = Reg(Bool()).init(False)
-    val cntCheckEmpty = Reg(UInt(conf.wLinkListOffset bits)).init(0)
-
-    val rRespByPop        = Reg(Bool()).init(False)
-
+    
     // clear Memory data in idle mode
     val zeroHTValue = Reg(HashValueBW(conf))
     val zeroLLValue = Reg(WaitEntryBW(conf))
@@ -111,7 +118,6 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     zeroLLValue.nextReqOffset  := 0
     val hashAddr = Reg(UInt(conf.wHashTable bits)).init(0)
     val linkAddr = Reg(UInt(conf.wLinkList bits)).init(0)
-    // val linkAddr = Reg(UInt(conf.wLinkListAddr bits)).init(0) // Error WIDTH MISMATCH (13 bits <- 14 bits) on (toplevel/table/htFSM_linkAddr
     IDLE.whenIsActive {
       hashAddr := hashAddr + 1
       ht(hashAddr) := zeroHTValue
@@ -123,15 +129,19 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     // Wait for lock request
     io.lockRequest.ready := isActive(WAIT_REQ)
     WAIT_REQ.whenIsActive{
-      cntCheckEmpty    := 0
       rRespTypeGrant   := False
       rRespTypeWait    := False
       rRespTypeAbort   := False
       rRespTypeRelease := False
       rReturnToPop     := False
       rRespByPop       := False
+      cntCheckEmpty    := 0
+      cntWaitEntryViewed   := 0
       rUpdateHashEntryAddr := False
       rUpdateWaitEntryOld  := False
+      waitOffset    := 0
+      waitOffsetOld := 0
+      waitOffsetNew := 0
       when(io.lockRequest.fire) {
         hashEntry := ht(io.lockRequest.payload.lockID) // Read the HashTable Value
         goto(HT_READ)
@@ -140,22 +150,27 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
 
     // Judge based on HashTable Value
     HT_READ.whenIsActive {
-      waitEntryNew := rLockReq.toWaitEntryBW()
-      waitOffset   := hashEntry.waitQAddr
+      waitEntryNew  := rLockReq.toWaitEntryBW()
+      waitOffset    := hashEntry.waitQAddr
+      waitOffsetNew := hashEntry.waitQAddr
       switch(rLockReq.toRelease) {
           is(False) { // lock Get
             when(hashEntry.ownerCnt > 0) { // lock exist
               when(hashEntry.exclusive || rLockReq.lockType.write) {  // lock conflict
                 when(hashEntry.waitQValid) { // push waitQ -> update waitEntry
-                  goto(LL_FIND_TAIL)
+                  goto(LL_READ_ENTRY)
                 } otherwise { // No WaitQ yet
-                  rUpdateHashEntryAddr := True // Need to update the 
+                  rUpdateHashEntryAddr := True // Need to update the hash entry WaitQ address
                   goto(LL_FIND_EMPTY)
                 }
               } otherwise { // shared Lock && lockType = read
-                rRespTypeGrant     := True
-                hashEntry.ownerCnt := hashEntry.ownerCnt + 1
-                goto(LOCK_RESP)
+                when(hashEntry.ownerCnt.andR){ // ownerCnt will overflow
+                  goto(LL_READ_ENTRY)
+                } otherwise{  // still have seats...
+                  rRespTypeGrant     := True
+                  hashEntry.ownerCnt := hashEntry.ownerCnt + 1
+                  goto(LOCK_RESP)
+                }
               }
             } otherwise { // lock empty
               rRespTypeGrant       := True
@@ -193,13 +208,19 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
       }
     }
 
+    LL_READ_ENTRY.whenIsActive{
+      goto(LL_FIND_TAIL)
+    }
+
     // Find the tail of current WaitQ
     LL_FIND_TAIL.whenIsActive {
       when(waitEntry.nextReqOffset > 0){ // continue to go to next waitEntry
         waitOffset := waitOffset + waitEntry.nextReqOffset
+        goto(LL_READ_ENTRY)
       } otherwise{ // now the old waitEntry is the tail
         waitEntryOld  := waitEntry
         waitOffsetOld := waitOffset
+        waitOffsetNew := waitOffset
         waitOffset    := waitOffset + 1
         goto(LL_FIND_EMPTY)
       }
@@ -209,26 +230,33 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     LL_FIND_EMPTY.whenIsActive {
       when((waitEntryAddr >= conf.maxLinkListAddr) || (cntCheckEmpty > conf.maxCheckEmpty)){ // Address is out of safe boundary, if ll.ins failed (not enough space)
         rRespTypeAbort := True
+        // Now add 1 to the ownerCnt, because I will release the aborted lock to reduce the TxnManager complexity
+        hashEntry.ownerCnt := hashEntry.ownerCnt + 1
         goto(LOCK_RESP)
       } otherwise { // still within the checking range
         when(waitEntry.lockType.read || waitEntry.lockType.write) { // slot is occupied
+          // Go to the next waitEntry
           cntCheckEmpty := cntCheckEmpty + 1
+          waitOffsetNew := waitOffsetNew + 1
+          waitOffset    := waitOffset + 1
         } otherwise { // find an empty waitQ slot
           rRespTypeWait := True
           when(rUpdateHashEntryAddr) { // If the insert command comes from the HT_READ: no waitQ yet
-            hashEntry.waitQAddr := waitOffset
+            hashEntry.waitQAddr := waitOffsetNew
+            hashEntry.waitQValid:= True
           } otherwise { // If the insert command comes from the LL_FIND_TAIL: waitQ exists, waitEntryOld is tail
             rUpdateWaitEntryOld := True
-            waitEntryOld.nextReqOffset := waitOffset - waitOffsetOld // WaitO & WaitOOld are absolute offset, so nextO is the diff between them
+            waitEntryOld.nextReqOffset := waitOffsetNew - waitOffsetOld // WaitO & WaitOOld are absolute offset, so nextO is the diff between them
           }
-          ll(waitEntryAddr) := waitEntryNew // Insert the new waitEntry
+          // Error: The actual waitEntry address is 1 step ahead of the checked entry (1 cycle latency)
+          ll(waitEntryAddrNew) := waitEntryNew // Insert the new waitEntry 
           goto(LOCK_RESP)
         }
       }
     }
 
     LL_DELETE.whenIsActive { // If the waitQ is full, then the offset will be larger and larger... eventually outside of 2^6 bits...and return to 0 after overflow
-      when(waitEIndex === rLockReqIndex) { // find the req in waitQ (only update waitEntry)
+      when(waitEntryIndex === rLockReqIndex) { // find the req in waitQ (only update waitEntry)
         when(rUpdateHashEntryAddr){        // If this is the first waitQ entry
           hashEntry.waitQAddr := waitOffset
         } otherwise {                      // If this is 2nd/other waitQ entry
@@ -253,28 +281,37 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     }
 
     LL_POP.whenIsActive {
-      when((hashEntry.ownerCnt === 0) || (hashEntry.exclusive === False && waitEntry.lockType.write === False)){ // The current waitEntry is suitable to pop
+      cntWaitEntryViewed := cntWaitEntryViewed + 1
+      val popSuccess = (hashEntry.ownerCnt === 0) || (hashEntry.exclusive === False && waitEntry.lockType.write === False)
+      when(popSuccess){ // The current waitEntry is suitable to pop        
+        // clear wait Q: popSuccess and only 1 waitEntry, or owerCnt = waitViewed (All viewed waiting locks are popSuccess because all read locks.)
+        val popClearQ = ((cntWaitEntryViewed === 0) && (waitEntry.nextReqOffset === 0)) || ((cntWaitEntryViewed === hashEntry.ownerCnt) && (waitEntry.nextReqOffset === 0))
+        when(popClearQ)(hashEntry.waitQValid := False)
+        // Analysis pop success
         when(hashEntry.ownerCnt === 0){ // arrive at the first waitQ entry: rUpdateHashEntryAddr= True
           rUpdateHashEntryAddr := True  // next waitEntry will become the first waitQ entry, so it should update the address if pop out
-          hashEntry.waitQAddr  := waitOffset
+          hashEntry.waitQAddr  := waitOffset + waitEntry.nextReqOffset
           hashEntry.exclusive  := waitEntry.lockType.write
         } otherwise{ // or the read lock is compatible, pop the current waitEntry
           when(rUpdateHashEntryAddr){ // still the first waitQ entry, because pop Read Lock Requests consecutively
-            hashEntry.waitQAddr := waitOffset
+            hashEntry.waitQAddr := waitOffset + waitEntry.nextReqOffset
           } otherwise{
             rUpdateWaitEntryOld := True
+            rUpdateHashEntryAddr := False  
             waitEntryOld.nextReqOffset := waitEntryOld.nextReqOffset + waitEntry.nextReqOffset
           }
         }
-        ll(waitEntryAddr) := zeroLLValue // delete the current waitEntry
+        ll(waitEntryAddr)  := zeroLLValue // delete the current waitEntry
         hashEntry.ownerCnt := hashEntry.ownerCnt + 1
-        rRespByPop := True
+        rRespTypeGrant := True
+        rRespByPop     := True
         goto(LOCK_RESP)
       } otherwise{ // current waitEntry should not pop
         rUpdateHashEntryAddr := False // we skip one WRITE waitEntry, so no need to update the hashEntry address
         waitEntryOld  := waitEntry    // record the current waitEntry details for next iteration
         waitOffsetOld := waitOffset
-        when((waitEntry.nextReqOffset > 0) && (hashEntry.exclusive === False)) { // continue to go to next waitEntry
+        val popContinue = (waitEntry.nextReqOffset > 0) && (hashEntry.exclusive === False)
+        when(popContinue) { // continue to go to next waitEntry
           waitOffset := waitOffset + waitEntry.nextReqOffset
         } otherwise { // now arrive at the tail waitEntry OR exclusive lock: go back to WAIT_REQUEST
           goto(WAIT_REQ)
@@ -283,9 +320,9 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     }
 
     // Directly assign the lockResponse to reduce the info transfering latency
-    io.lockResponse.payload.channelID :=  io.channelIdx
-    io.lockResponse.payload.tableIdx  :=  0
-    io.lockResponse.payload.lockID    :=  rLockReq.lockID
+    io.lockResponse.payload.channelID := io.channelIdx
+    io.lockResponse.payload.tableIdx  := 0
+    io.lockResponse.payload.lockID    := rLockReq.lockID
     io.lockResponse.payload.granted   := rRespTypeGrant
     io.lockResponse.payload.waiting   := rRespTypeWait
     io.lockResponse.payload.aborted   := rRespTypeAbort
@@ -297,15 +334,8 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
       io.lockResponse.payload.srcTxnIdx  :=  waitEntry.srcTxnIdx
       io.lockResponse.payload.toRelease  :=  False
       io.lockResponse.payload.txnTimeOut :=  False
-      // io.lockResponse.payload.channelID :=  io.channelIdx
-      // io.lockResponse.payload.tableIdx  :=  0
-      // io.lockResponse.payload.lockID    :=  rLockReq.lockID
       io.lockResponse.payload.lockType   :=  waitEntry.lockType
       io.lockResponse.payload.rwLength   :=  waitEntry.rwLength
-      // io.lockResponse.payload.granted  := rRespTypeGrant
-      // io.lockResponse.payload.waiting  := rRespTypeWait
-      // io.lockResponse.payload.aborted  := rRespTypeAbort
-      // io.lockResponse.payload.released := rRespTypeRelease
     } otherwise {
       // io.lockResponse.payload :=  rLockRespFromReq // The lock response Grant/Abort is one cycle late,
       io.lockResponse.payload.srcNode    :=  rLockReq.srcNode
@@ -313,20 +343,19 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
       io.lockResponse.payload.srcTxnIdx  :=  rLockReq.srcTxnIdx
       io.lockResponse.payload.toRelease  :=  rLockReq.toRelease
       io.lockResponse.payload.txnTimeOut :=  rLockReq.txnTimeOut
-      // io.lockResponse.payload.channelID :=  io.channelIdx
-      // io.lockResponse.payload.tableIdx  :=  0
-      // io.lockResponse.payload.lockID    :=  rLockReq.lockID
       io.lockResponse.payload.lockType   :=  rLockReq.lockType
       io.lockResponse.payload.rwLength   :=  rLockReq.rwLength
-      // io.lockResponse.payload.granted  := rRespTypeGrant
-      // io.lockResponse.payload.waiting  := rRespTypeWait
-      // io.lockResponse.payload.aborted  := rRespTypeAbort
-      // io.lockResponse.payload.released := rRespTypeRelease
     }
     io.lockResponse.valid := isActive(LOCK_RESP)
     LOCK_RESP.whenIsActive {
       when(io.lockResponse.fire){
-        rRespByPop := False
+        rRespTypeGrant   := False // Clear response types
+        rRespTypeWait    := False
+        rRespTypeAbort   := False
+        rRespTypeRelease := False
+        rReturnToPop     := False
+        rRespByPop       := False // Clear the response.payload tag
+        rUpdateWaitEntryOld  := False
         ht(rLockReq.lockID) := hashEntry // Update the hashEntry details after sending the response
         when(rUpdateWaitEntryOld)(ll(rLockReq.lockID.resize(conf.wLinkList bits) + waitOffsetOld) := waitEntryOld)
         when(rReturnToPop){
