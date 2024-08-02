@@ -8,14 +8,6 @@ import spinal.lib.bus.amba4.axi._
 import spinal.lib.fsm.StateMachine
 import hwsys.util._
 
-//case class LockRespType() extends Bundle{
-//  // Lock Response Types - one-hot encoding - 4-bit
-//  val granted = Bool()
-//  val waiting = Bool()
-//  val aborted = Bool()
-//  val released = Bool()
-//}
-
 // Hash Table value
 case class HashValueBW(conf: MinSysConfig) extends Bundle{
   val exclusive  = Bool() // .init(False) // sh,ex // Error: Try to set initial value of a data that is not a register
@@ -77,15 +69,19 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
   ** 1, current one: waitEntry-waitOffset-waitEntryAddr-waitEntryIndex
   ** 2, the new one: waitEntryNew-waitOffsetNew-waitEntryAddrNew. The entry to store/insert to waitQ. 
                      Because reading out the LL has 1 cycle latency, so new waitOffset and Addr MAYBE 1 cycle late if checking >1 LL slots
+                     This is fixed by using waitEntryAddrFast.
   ** 3, the old one: waitEntryOld-waitOffsetOld. To record the previous LL entry, it is the previous LL entry to connect the new waitEntry
   */ 
   val waitEntry,  waitEntryOld,  waitEntryNew   = Reg(WaitEntryBW(conf)) 
-  val waitOffset, waitOffsetOld, waitOffsetNew  = Reg(UInt(conf.wLinkListOffset bits)).init(0)
+  val waitOffset, waitOffsetOld  = Reg(UInt(conf.wLinkListOffset bits)).init(0)
+  val waitEntryAddr      = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffset
+  val waitEntryAddrFast  = UInt(conf.wLinkList bits)
   val cntCheckEmpty      = Reg(UInt(conf.wLinkListOffset bits)).init(0)
   val cntWaitEntryViewed = Reg(UInt(conf.wLinkListOffset bits)).init(0)
-  val waitEntryAddr      = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffset
-  val waitEntryAddrNew   = rLockReq.lockID.resize(conf.wLinkList bits) + waitOffsetNew 
-  waitEntry := ll(waitEntryAddr)
+
+
+
+  waitEntry := ll(waitEntryAddrFast)
   val rLockReqIndex  =  rLockReq.srcNode.asBits ##  rLockReq.srcTxnMan.asBits ##  rLockReq.srcTxnIdx.asBits // identify the waitEntry and lockRelease request
   val waitEntryIndex = waitEntry.srcNode.asBits ## waitEntry.srcTxnMan.asBits ## waitEntry.srcTxnIdx.asBits
 
@@ -119,6 +115,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     val hashAddr = Reg(UInt(conf.wHashTable bits)).init(0)
     val linkAddr = Reg(UInt(conf.wLinkList bits)).init(0)
     IDLE.whenIsActive {
+      waitEntryAddrFast    := 0
       hashAddr := hashAddr + 1
       ht(hashAddr) := zeroHTValue
       linkAddr := linkAddr + 1
@@ -141,7 +138,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
       rUpdateWaitEntryOld  := False
       waitOffset    := 0
       waitOffsetOld := 0
-      waitOffsetNew := 0
+      waitEntryAddrFast := 0
       when(io.lockRequest.fire) {
         hashEntry := ht(io.lockRequest.payload.lockID) // Read the HashTable Value
         goto(HT_READ)
@@ -152,7 +149,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     HT_READ.whenIsActive {
       waitEntryNew  := rLockReq.toWaitEntryBW()
       waitOffset    := hashEntry.waitQAddr
-      waitOffsetNew := hashEntry.waitQAddr
+      waitEntryAddrFast := rLockReq.lockID.resize(conf.wLinkList bits) + hashEntry.waitQAddr
       switch(rLockReq.toRelease) {
           is(False) { // lock Get
             when(hashEntry.ownerCnt > 0) { // lock exist
@@ -208,27 +205,26 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
       }
     }
 
-    LL_READ_ENTRY.whenIsActive{
-      goto(LL_FIND_TAIL)
-    }
-
     // Find the tail of current WaitQ
+    // waitEntryAddrfAST is the next waitEntry, waitOffset is the current waitEntry and is being updated to the next waitEntry
     LL_FIND_TAIL.whenIsActive {
       when(waitEntry.nextReqOffset > 0){ // continue to go to next waitEntry
+        waitEntryAddrFast := waitEntryAddr + waitEntry.nextReqOffset
         waitOffset := waitOffset + waitEntry.nextReqOffset
-        goto(LL_READ_ENTRY)
       } otherwise{ // now the old waitEntry is the tail
+        waitEntryAddrFast := waitEntryAddr + 1
         waitEntryOld  := waitEntry
         waitOffsetOld := waitOffset
-        waitOffsetNew := waitOffset
         waitOffset    := waitOffset + 1
         goto(LL_FIND_EMPTY)
       }
     }
 
     // Find an empty waitQ slot
+    // waitEntryAddr is the next waitEntry, waitOffset is the current waitEntry and is being updated to the next waitEntry
     LL_FIND_EMPTY.whenIsActive {
-      when((waitEntryAddr >= conf.maxLinkListAddr) || (cntCheckEmpty > conf.maxCheckEmpty)){ // Address is out of safe boundary, if ll.ins failed (not enough space)
+      waitEntryAddrFast := waitEntryAddr + 1
+      when((waitEntryAddrFast >= conf.maxLinkListAddr) || (cntCheckEmpty > conf.maxCheckEmpty)){ // Address is out of safe boundary, if ll.ins failed (not enough space)
         rRespTypeAbort := True
         // Now add 1 to the ownerCnt, because I will release the aborted lock to reduce the TxnManager complexity
         hashEntry.ownerCnt := hashEntry.ownerCnt + 1
@@ -237,25 +233,25 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
         when(waitEntry.lockType.read || waitEntry.lockType.write) { // slot is occupied
           // Go to the next waitEntry
           cntCheckEmpty := cntCheckEmpty + 1
-          waitOffsetNew := waitOffsetNew + 1
           waitOffset    := waitOffset + 1
         } otherwise { // find an empty waitQ slot
           rRespTypeWait := True
           when(rUpdateHashEntryAddr) { // If the insert command comes from the HT_READ: no waitQ yet
-            hashEntry.waitQAddr := waitOffsetNew
+            hashEntry.waitQAddr := waitOffset
             hashEntry.waitQValid:= True
           } otherwise { // If the insert command comes from the LL_FIND_TAIL: waitQ exists, waitEntryOld is tail
             rUpdateWaitEntryOld := True
-            waitEntryOld.nextReqOffset := waitOffsetNew - waitOffsetOld // WaitO & WaitOOld are absolute offset, so nextO is the diff between them
+            waitEntryOld.nextReqOffset := waitOffset - waitOffsetOld // WaitO & WaitOOld are absolute offset, so nextO is the diff between them
           }
           // Error: The actual waitEntry address is 1 step ahead of the checked entry (1 cycle latency)
-          ll(waitEntryAddrNew) := waitEntryNew // Insert the new waitEntry 
+          ll(waitEntryAddr) := waitEntryNew // Insert the new waitEntry
           goto(LOCK_RESP)
         }
       }
     }
 
     LL_DELETE.whenIsActive { // If the waitQ is full, then the offset will be larger and larger... eventually outside of 2^6 bits...and return to 0 after overflow
+      waitEntryAddrFast := waitEntryAddr + waitEntry.nextReqOffset
       when(waitEntryIndex === rLockReqIndex) { // find the req in waitQ (only update waitEntry)
         when(rUpdateHashEntryAddr){        // If this is the first waitQ entry
           hashEntry.waitQAddr := waitOffset
@@ -281,6 +277,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     }
 
     LL_POP.whenIsActive {
+      waitEntryAddrFast := waitEntryAddr + waitEntry.nextReqOffset
       cntWaitEntryViewed := cntWaitEntryViewed + 1
       val popSuccess = (hashEntry.ownerCnt === 0) || (hashEntry.exclusive === False && waitEntry.lockType.write === False)
       when(popSuccess){ // The current waitEntry is suitable to pop        
@@ -301,6 +298,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
             waitEntryOld.nextReqOffset := waitEntryOld.nextReqOffset + waitEntry.nextReqOffset
           }
         }
+        // waitEntryAddrFast is 1 cycle ahead, so need to use waitOffset to get the current waitEntryAddr
         ll(waitEntryAddr)  := zeroLLValue // delete the current waitEntry
         hashEntry.ownerCnt := hashEntry.ownerCnt + 1
         rRespTypeGrant := True
@@ -348,6 +346,7 @@ class LockTableBWait(conf: MinSysConfig) extends Component {
     }
     io.lockResponse.valid := isActive(LOCK_RESP)
     LOCK_RESP.whenIsActive {
+      waitEntryAddrFast := waitEntryAddr
       when(io.lockResponse.fire){
         rRespTypeGrant   := False // Clear response types
         rRespTypeWait    := False
