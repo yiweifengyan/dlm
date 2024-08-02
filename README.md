@@ -245,3 +245,20 @@ shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.4 dlm.runMain hwsys.dlm
 [txnMan] cntTxnLd: 128
 [txnMan] cntClk: 133480
 [Done] Simulation done in 22555.227 ms
+
+With optimized waitEntryAddrFast:
+[Runtime] SpinalHDL v1.7.3    git head : aeaeece704fe43c766e0d36a93f2ecbb8a9f2003
+[Runtime] JVM max memory : 2478.0MiB
+[Runtime] Current date : 2024.08.02 18:36:34
+[txnMan] cntTxnCmt: 128
+[txnMan] cntTxnAbt: 0
+[txnMan] cntTxnLd: 128
+[txnMan] cntClk: 89026
+[Done] Simulation done in 34009.162 ms
+
+Dense write, 128 txns with 30 sequential lockIDs. 
+[txnMan] cntTxnCmt: 12
+[txnMan] cntTxnAbt: 116
+[txnMan] cntTxnLd: 128
+[txnMan] cntClk: 7039
+[Done] Simulation done in 24560.012 ms

@@ -77,7 +77,7 @@ object TableSim{
       val fNId = (i: Int, j: Int) => 0
       val fCId = (i: Int, j: Int) => 0
       val fTId = (i: Int, j: Int) => 0 // Table ID
-      val fLockID = (i: Int, j: Int) => (16 + j)*16  // 1024 txns ask for one shared lock
+      val fLockID = (i: Int, j: Int) => (16 + j)  // 1024 txns ask for one shared lock
       val fLockType = (i: Int, j: Int) => 2 // 1 = Read, 2 = Write, 3 = Read and Write
       val fWLen   = (i: Int, j: Int) => 1
       val txnCtx  = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fLockType, fWLen).toArray
