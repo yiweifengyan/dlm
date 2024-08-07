@@ -6,7 +6,7 @@ val spinalVersion = "1.10.1"
 val scalaTestVersion = "3.2.19"
 
 trait CommonSpinalModule extends ScalaModule with ScalafmtModule with ScalafixModule{
-  def scalaVersion = "2.12.19"
+  def scalaVersion = "2.13.14"
 
   def scalacOptions = Seq("-unchecked", "-deprecation", "-feature")
 
