@@ -189,6 +189,11 @@ class PacketSender(portCount: Int, wSendLength: Int) extends Component{
   val maskRouted   = Mux(locked, maskLocked, maskProposal) //Mux(cond, outputWhenTrue, outputWhenFalse)
   val toSendData   = MuxOH(maskRouted, io.inLength) // how many data packets to send in current selection
   val sendCounter  = Reg(UInt(wSendLength bits)).init(0)
+  /*Exception in thread "main" java.lang.AssertionError: assertion failed
+        at scala.Predef$.assert(Predef.scala:208)
+        at spinal.core.package$.assert(core.scala:464)
+        at spinal.lib.MuxOHImpl.apply(Utils.scala:102)
+  */
 
   val FSM = new StateMachine{
     val SEND_ONE = new State with EntryPoint
