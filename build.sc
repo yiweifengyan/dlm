@@ -2,8 +2,8 @@ import $ivy.`com.goyeau::mill-scalafix::0.2.8`
 import com.goyeau.mill.scalafix.ScalafixModule
 import mill._, scalalib._, scalafmt._
 
-val spinalVersion = "1.7.3"
-val scalaTestVersion = "3.2.11"
+val spinalVersion = "1.10.1" 
+val scalaTestVersion = "3.2.19"
 
 trait CommonSpinalModule extends ScalaModule with ScalafmtModule with ScalafixModule{
   def scalaVersion = "2.12.19"
@@ -14,8 +14,8 @@ trait CommonSpinalModule extends ScalaModule with ScalafmtModule with ScalafixMo
     ivy"com.github.spinalhdl::spinalhdl-core:$spinalVersion",
     ivy"com.github.spinalhdl::spinalhdl-lib:$spinalVersion",
     ivy"com.github.spinalhdl::spinalhdl-sim:$spinalVersion",
-    ivy"com.lihaoyi::os-lib:0.8.0",
-    ivy"org.scalactic::scalactic:3.2.18",
+    ivy"com.lihaoyi::os-lib:0.10.0",
+    ivy"org.scalactic::scalactic:3.2.19",
     ivy"org.scala-stm::scala-stm:0.11.0"
     )
 
