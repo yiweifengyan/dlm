@@ -404,39 +404,6 @@ case class AxiMemorySim(axi : Axi4, clockDomain : ClockDomain, config : AxiMemor
 
   }
 
-//  // deprecated
-//  def handleW(w : Stream[Axi4W], b : Stream[Axi4B]) : Unit = {
-//    println("Handling AXI4 Master write...")
-//
-//    w.ready #= false
-//    b.valid #= false
-//
-//    while (true) {
-//      w.ready #= true
-//
-//      var job = pending_writes.front
-//      var count = job.burstLength
-//
-//      for (i <- 0 to job.burstLength) {
-//        clockDomain.waitSamplingWhere(w.valid.toBoolean)
-//        memory.writeBigInt(job.address + i * busWordWidth, w.payload.data.toBigInt, busWordWidth)
-//      }
-//
-//      w.ready #= false
-//
-//      clockDomain.waitSampling(config.writeResponseDelay)
-//
-//      b.id #= job.id
-//      b.valid #= true
-//      b.payload.resp #= 0
-//      clockDomain.waitSamplingWhere(b.ready.toBoolean)
-//      b.valid #= false
-//
-//      pending_writes.dequeue()
-//
-//      //println("AXI4 write: addr=0x" + job.address.toBigInt.toHexString + " count=" + (job.burstLength+1))
-//    }
-//  }
 
 
     def handleW(w : Stream[Axi4W], b : Stream[Axi4B]) : Unit = {

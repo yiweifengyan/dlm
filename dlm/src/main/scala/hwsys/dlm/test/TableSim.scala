@@ -87,7 +87,7 @@ object TableSim{
 
       dut.io.start #= false
       // wait the fifo (empty_ptr) to reset
-      dut.clockDomain.waitSampling(sysConf.nLock / sysConf.nTable + 1000)
+      dut.clockDomain.waitSampling(sysConf.nLock + 100)
 
       // config
       dut.io.loadAddrBase #= 0

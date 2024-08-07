@@ -57,7 +57,7 @@ object SimDriver {
       case Some(ctx) => {
         mem.memory.writeArray(0, ctx)
       }
-      case None => mem.memory.writeArray(0, Array.fill[Byte](1<<26)(0.toByte))
+      case None => mem.memory.writeArray(0, Array.fill[Byte](1<<25)(0.toByte))
     }
     mem
   }

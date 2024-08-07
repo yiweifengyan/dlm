@@ -7,7 +7,7 @@ import spinal.lib.master
 import hwsys.dlm._
 import hwsys.sim._
 import hwsys.util.Helpers._
-
+import java.io._
 
 class TwoTxnManTwoLockTable(sysConf: MinSysConfig) extends Component {
 
@@ -82,9 +82,9 @@ object CoreSim{
       dut
     }.doSim("TwoTxnManTwoLockTable", 99) { dut =>
       // params
-      val txnLen = 8
+      val txnLen = 30
       val txnCnt = 128
-      val txnMaxLen = sysConf.maxTxnLen - 1
+      val txnMaxLen = sysConf.maxTxnLen 
 
       dut.clockDomain.forkStimulus(period = 10)
 
@@ -92,8 +92,8 @@ object CoreSim{
       val fNId = (i: Int, j: Int) => i % sysConf.nNode
       val fCId = (i: Int, j: Int) => j % sysConf.nChannel
       val fTId = (i: Int, j: Int) => (i*j+j) % sysConf.nTable
-      val fLockID = (i: Int, j: Int) => i*j+j
-      val fLockType = (i: Int, j: Int) => 1 // Read
+      val fLockID = (i: Int, j: Int) => 16 + i*j+j
+      val fLockType = (i: Int, j: Int) => 2 - (i % sysConf.nNode)  //  Node 1 serves all read locks, Node 0 serves All write locks
       val fWLen   = (i: Int, j: Int) => 1
       val txnCtx  = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fLockType, fWLen).toArray
       val cmdAxiMem = SimDriver.instAxiMemSim(dut.io.loadAXI, dut.clockDomain, Some(txnCtx))
@@ -101,9 +101,14 @@ object CoreSim{
       val cmdAxiMemB = SimDriver.instAxiMemSim(dut.io.loadAXIB, dut.clockDomain, Some(txnCtx))
       val axiMemB    = SimDriver.instAxiMemSim(dut.io.dataAXIB, dut.clockDomain, None)
 
+      // store the txn workload data array to a file to debug.
+      val writer = new PrintWriter(new File("output.data"))
+      txnCtx.foreach(writer.println)
+      writer.close()
+
       dut.io.start #= false
       // wait the fifo (empty_ptr) to reset
-      dut.clockDomain.waitSampling(sysConf.nLock / sysConf.nTable + 1000)
+      dut.clockDomain.waitSampling(sysConf.nLock + 100)
 
       // config
       dut.io.loadAddrBase #= 0

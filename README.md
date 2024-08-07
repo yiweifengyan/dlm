@@ -262,3 +262,28 @@ Dense write, 128 txns with 30 sequential lockIDs.
 [txnMan] cntTxnLd: 128
 [txnMan] cntClk: 7039
 [Done] Simulation done in 24560.012 ms
+
+Two TxnMan Two Tables simulate passed all read. Node 0 and 1 both 128 txns,
+[txnMan] cntTxnCmt: 128
+[txnMan] cntTxnAbt: 0
+[txnMan] cntTxnLd: 128
+[txnMan] cntClk: 41080
+[Done] Simulation done in 28181.376 ms
+
+Two TxnMan Two Tables passed Read-Write mixed simulation. Node 0 128 txns, node 1 16 txns.
+shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.4 dlm.runMain hwsys.dlm.test.CoreSim
+[31/42] dlm.compile 
+[info] compiling 1 Scala source to /home/shaun/Documents/dlm/out/dlm/compile.dest/classes ...
+[info] done compiling
+[42/42] dlm.runMain 
+[Runtime] SpinalHDL v1.7.3    git head : aeaeece704fe43c766e0d36a93f2ecbb8a9f2003
+[Runtime] JVM max memory : 2478.0MiB
+[Runtime] Current date : 2024.08.07 11:54:29
+[Progress] at 0.000 : Elaborate components
+[Progress] at 1.088 : Checks and transforms
+[Progress] at 2.191 : Generate Verilog
+[txnMan] cntTxnCmt: 128
+[txnMan] cntTxnAbt: 0
+[txnMan] cntTxnLd: 128
+[txnMan] cntClk: 32433
+[Done] Simulation done in 20409.428 ms
