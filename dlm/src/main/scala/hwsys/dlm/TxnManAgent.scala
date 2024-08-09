@@ -35,8 +35,8 @@ trait MinSysConfig {
     def wLockEntry= 32
     def wLockType = 2
     def wRWLength = 2
-    def wLockRequest = 56
-    def wLockResponse= 32
+    def wLockRequest = 48
+    def wLockResponse= 48
     // Shift Offsets for Txn Entry - 32-bit TxnEntry
     def sNodeID  =0
     def sChannel =4

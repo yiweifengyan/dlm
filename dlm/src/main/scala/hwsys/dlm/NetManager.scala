@@ -29,7 +29,7 @@ class DecoderReqResp(dataLen: Int, select: Int) extends Component {
   val io = new Bundle {
     val in_valid = in Bool()
     val in_ready = out Bool()
-    val in_data  = Bits(64 bits)
+    val in_data  = in Bits(64 bits)
     val out_valid = out Bool()
     val out_ready = in Bool()
     val out_data  = out(Reg(Bits(dataLen bits)))
@@ -42,7 +42,7 @@ class DecoderReqResp(dataLen: Int, select: Int) extends Component {
     val dataValid = io.in_data(0) ^ io.in_data(1) // lockRequest or lockResponse
     io.in_ready := isActive(WAIT_DATA)
     WAIT_DATA.whenIsActive{
-      io.out_data := io.in_data(63 downto 63 - dataLen)
+      io.out_data := io.in_data(63 downto 64 - dataLen)
       io.out_sel  := io.in_data(3 + select downto 4)
       when(io.in_valid && dataValid)(goto(SEND_DATA))
     }
@@ -87,11 +87,11 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
     val loadLength = Reg (UInt(conf.wRWLength bits)) // one load: how many loading should I run
     val loadCounter = Reg (UInt(conf.wRWLength bits))// one load: counter loading
     LOAD_REQS.whenIsActive{
-      when(io.in_response.fire){
+      when(io.in_response.fire){ // ERROR: Fixed-Size Encoder and Decoder
         sendQReqs(currentReqs * 64 +  0, 4 bits) := B(1, 4 bits) // B3-B0: 0001 The x(offset: UInt, width bits) Variable part-select of fixed width, offset is LSB index
         sendQReqs(currentReqs * 64 +  4, 4 bits) := io.in_response.payload.srcTxnMan.asBits // where to route this package: srcTxnMan is also target/receiving TxnMan
-        sendQReqs(currentReqs * 64 +  8, 8 bits) := B(0, 4 bits) // Fill in with 0s
-        sendQReqs(currentReqs * 64 + 16,48 bits) := io.in_response.payload.asBits
+        sendQReqs(currentReqs * 64 +  8, 8 bits) := B(0, 8 bits) // Fill in with 0s
+        sendQReqs(currentReqs * 64 + 16,48 bits) := io.in_response.payload.asBits  // conf.wLockRequest
         currentReqs := currentReqs + 1
         when(currentReqs === 0)(timeOutStart.set())
         when(to_load_data_req) {
@@ -105,7 +105,7 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
       when(io.in_request.fire) {
         sendQReqs(currentReqs * 64 +  0, 4 bits) := B(2, 4 bits) // B3-B0: 0010
         sendQReqs(currentReqs * 64 +  4, 4 bits) := io.in_request.payload.srcTxnMan.asBits // where to route this package: srcTxnMan is also target/receiving TxnMan
-        sendQReqs(currentReqs * 64 +  8, 8 bits) := B(0, 4 bits) // Fill in with 0s
+        sendQReqs(currentReqs * 64 +  8, 8 bits) := B(0, 8 bits) // Fill in with 0s
         sendQReqs(currentReqs * 64 + 16,48 bits) := io.in_request.payload.asBits
         currentReqs := currentReqs + 1
         when(currentReqs === 0)(timeOutStart.set())
@@ -144,8 +144,9 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
       }
     }
 
-    io.out_data.valid := isActive(SEND_REQS) || isActive(SEND_DATA)
-    io.out_length := currentData // The sending out batch is 1 reqResp + data packets. Only data packet num is needed for sneder 
+    io.out_data.valid   := isActive(SEND_REQS) || isActive(SEND_DATA)
+    io.out_data.payload := B(0, 512 bits)
+    io.out_length := currentData // The sending out batch is 1 reqResp + data packets. Only data packet num is needed for sender 
     SEND_REQS.whenIsActive{
       timeToSend.clear() // clear the signals on timeOut counter
       timeOutStart.clear()
@@ -179,7 +180,7 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
 class PacketSender(portCount: Int, wSendLength: Int) extends Component{
   val io = new Bundle {
     val inputs   = Vec(slave Stream Bits(512 bits), portCount)
-    val inLength = Vec(UInt(wSendLength bits))
+    val inLength = Vec(in UInt(wSendLength bits), portCount)
     val output   = master Stream Bits(512 bits)
   }
 
@@ -187,13 +188,18 @@ class PacketSender(portCount: Int, wSendLength: Int) extends Component{
   val maskProposal = Vec(Bool(),portCount)
   val maskLocked   = Reg(Vec(Bool(),portCount))
   val maskRouted   = Mux(locked, maskLocked, maskProposal) //Mux(cond, outputWhenTrue, outputWhenFalse)
-  val toSendData   = MuxOH(maskRouted, io.inLength) // how many data packets to send in current selection
-  val sendCounter  = Reg(UInt(wSendLength bits)).init(0)
+  // dataLength = MuxOH(maskRouted, io.inLength) // how many data packets to send in current selection
+  val dataLength   = UInt(wSendLength bits)
+  dataLength := 0
+  for (i <- 0 until portCount){
+    when(maskRouted(i))(dataLength := io.inLength(i))
+  }
   /*Exception in thread "main" java.lang.AssertionError: assertion failed
         at scala.Predef$.assert(Predef.scala:208)
         at spinal.core.package$.assert(core.scala:464)
         at spinal.lib.MuxOHImpl.apply(Utils.scala:102)
   */
+  val sendCounter  = Reg(UInt(wSendLength bits)).init(0)
 
   val FSM = new StateMachine{
     val SEND_ONE = new State with EntryPoint
@@ -204,8 +210,8 @@ class PacketSender(portCount: Int, wSendLength: Int) extends Component{
         maskLocked := maskRouted
       }
       when(io.output.fire){
-        sendCounter := toSendData
-        when(toSendData > 0){
+        sendCounter := dataLength
+        when(dataLength > 0){
           locked.set()
           goto(SEND_OTHERS)
         } otherwise {
@@ -277,7 +283,7 @@ class NetManager(conf: MinSysConfig) extends Component {
     decoder.io.out_ready := reqRespDemuxArray(idx).io.input.ready
     reqRespDemuxArray(idx).io.input.valid   := decoder.io.out_valid
     reqRespDemuxArray(idx).io.input.payload := decoder.io.out_data
-    reqRespDemuxArray(idx).io.select        := decoder.io.out_sel.asUInt.resized
+    reqRespDemuxArray(idx).io.select        := decoder.io.out_sel.asUInt.resize(log2Up(conf.nTxnMan) bits)
   }
   // crossBar part 2: nTxnMan accept 8 req/Resp with lowerFirst priority
   val reqRespArbiterArray = Array.fill(conf.nTxnMan)(new StreamArbiter(Bits(conf.wLockRequest bits), NUM_DECODERS)(StreamArbiter.Arbitration.lowerFirst, StreamArbiter.Lock.none))
@@ -285,17 +291,28 @@ class NetManager(conf: MinSysConfig) extends Component {
     (reqRespDemuxArray.map(_.io.outputs(i)), reqRespArbiterArray(i).io.inputs).zipped.foreach(_ >/-> _) // pipelined
   // separate the lock requests from responses
   val toTxnManReqResps = Array.fill(conf.nTxnMan)(new StreamDemux(Bits(conf.wLockRequest bits), 2))
+  val toTxnManRawReqs  = Array.fill(conf.nTxnMan)(new Stream(Bits(conf.wLockRequest bits)))
+  val toTxnManRawResp  = Array.fill(conf.nTxnMan)(new Stream(Bits(conf.wLockRequest bits)))
   (reqRespArbiterArray, toTxnManReqResps).zipped.foreach(_.io.output >> _.io.input)
   toTxnManReqResps.zipWithIndex.foreach{ case (reqResp, idx) =>
     reqResp.io.select := (reqResp.io.input.payload(31) || reqResp.io.input.payload(30) || reqResp.io.input.payload(29) || reqResp.io.input.payload(28)).asUInt
-    io.fromRemoteLockResp(idx).transmuteWith(reqResp.io.outputs(0).queue(NUM_TO_TXNMAN_RESPQ))
-    io.fromRemoteLockReq(idx).transmuteWith(reqResp.io.outputs(1).queue(NUM_TO_TXNMAN_RESPQ))
+    // ERROR: HIERARCHY VIOLATION : (toplevel/netMan/io_fromRemoteLockResp_0_ready : in Bool) is driven by io_fromRemoteLockResp_0_transmuted_ready, but isn't accessible in the netMan component.
+    // io.fromRemoteLockResp(idx).transmuteWith(reqResp.io.outputs(0).queue(NUM_TO_TXNMAN_RESPQ))
+    toTxnManRawResp(idx) << reqResp.io.outputs(0).queue(NUM_TO_TXNMAN_RESPQ)
+    io.fromRemoteLockResp(idx).payload.assignFromBits(toTxnManRawResp(idx).payload)
+    io.fromRemoteLockResp(idx).valid := toTxnManRawResp(idx).valid
+    toTxnManRawResp(idx).ready       := io.fromRemoteLockResp(idx).ready
+    // io.fromRemoteLockReq(idx).transmuteWith(reqResp.io.outputs(1).queue(NUM_TO_TXNMAN_RESPQ))
+    toTxnManRawReqs(idx) << reqResp.io.outputs(1).queue(NUM_TO_TXNMAN_RESPQ)
+    io.fromRemoteLockReq(idx).payload.assignFromBits(toTxnManRawReqs(idx).payload)
+    io.fromRemoteLockReq(idx).valid := toTxnManRawReqs(idx).valid 
+    toTxnManRawReqs(idx).ready      := io.fromRemoteLockReq(idx).ready
   }
 
   // 3, extract ResvQ Read/Write.
   val recvDataDemux = StreamDemux(recvQData.io.pop, recvQData.io.pop.payload(4).asUInt, 2) // Bit 4: Data Write
-  val recvReadDemux = StreamDemux(recvDataDemux(0), recvDataDemux(0).payload(7 downto 4).asUInt, conf.nTxnMan)
-  val recvWriteDemux = StreamDemux(recvDataDemux(1), recvDataDemux(1).payload(7 downto 4).asUInt, conf.nTxnMan)
+  val recvReadDemux = StreamDemux(recvDataDemux(0), recvDataDemux(0).payload(7 downto 4).asUInt.resize(log2Up(conf.nTxnMan) bits), conf.nTxnMan)
+  val recvWriteDemux = StreamDemux(recvDataDemux(1), recvDataDemux(1).payload(7 downto 4).asUInt.resize(log2Up(conf.nTxnMan) bits), conf.nTxnMan)
   io.fromRemoteRead.zipWithIndex.foreach{ case(readPort, i) =>
     readPort << recvReadDemux(i).queue(NUM_TO_TXNMAN_DATAQ)
   }
@@ -313,7 +330,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toRemoteReqArbiterArray = Array.fill(NUM_NODES)(new StreamArbiter(LockRequest(conf), conf.nTxnMan)(StreamArbiter.Arbitration.roundRobin, StreamArbiter.Lock.none))
   toRemoteReqDemuxArray.zipWithIndex.foreach { case (demux, idx) =>
     demux.io.input << io.toRemoteLockReq(idx) 
-    demux.io.select << io.toRemoteLockReq(idx).payload.nodeID
+    demux.io.select := io.toRemoteLockReq(idx).payload.nodeID
   }
   for (i <- 0 until NUM_NODES)
     (toRemoteReqDemuxArray.map(_.io.outputs(i)), toRemoteReqArbiterArray(i).io.inputs).zipped.foreach(_ >/-> _)
@@ -322,7 +339,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toRemoteRespArbiterArray = Array.fill(NUM_NODES)(new StreamArbiter(LockResponse(conf), conf.nTxnMan)(StreamArbiter.Arbitration.roundRobin, StreamArbiter.Lock.none))
   toRemoteRespDemuxArray.zipWithIndex.foreach { case (demux, idx) =>
     demux.io.input << io.toRemoteLockResp(idx)
-    demux.io.select << io.toRemoteLockResp(idx).payload.srcNode
+    demux.io.select := io.toRemoteLockResp(idx).payload.srcNode
   }
   for (i <- 0 until NUM_NODES)
     (toRemoteRespDemuxArray.map(_.io.outputs(i)), toRemoteRespArbiterArray(i).io.inputs).zipped.foreach(_ >/-> _)
@@ -331,7 +348,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toRemoteReadMUXArray = Array.fill(NUM_NODES)(new StreamMux(Bits(512 bits), conf.nTxnMan))
   toRemoteReadDemuxArray.zipWithIndex.foreach { case (demux, idx) =>
     demux.io.input << io.toRemoteRead(idx)
-    demux.io.select << io.toRemoteLockResp(idx).payload.srcNode
+    demux.io.select := io.toRemoteLockResp(idx).payload.srcNode
   }
   for (i <- 0 until NUM_NODES)
     (toRemoteReadDemuxArray.map(_.io.outputs(i)), toRemoteReadMUXArray(i).io.inputs).zipped.foreach(_ >/-> _)
@@ -340,7 +357,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toRemoteWriteMUXArray = Array.fill(NUM_NODES)(new StreamMux(Bits(512 bits), conf.nTxnMan))
   toRemoteWriteDemuxArray.zipWithIndex.foreach { case (demux, idx) =>
     demux.io.input << io.toRemoteWrite(idx)
-    demux.io.select << io.toRemoteLockReq(idx).payload.nodeID
+    demux.io.select := io.toRemoteLockReq(idx).payload.nodeID
   }
   for (i <- 0 until NUM_NODES)
     (toRemoteWriteDemuxArray.map(_.io.outputs(i)), toRemoteWriteMUXArray(i).io.inputs).zipped.foreach(_ >/-> _)
@@ -349,8 +366,8 @@ class NetManager(conf: MinSysConfig) extends Component {
   encoderArray.zipWithIndex.foreach { case (encoder, idx) =>
     encoder.io.in_request << toRemoteReqArbiterArray(idx).io.output
     encoder.io.in_response << toRemoteRespArbiterArray(idx).io.output
-    toRemoteReadMUXArray(idx).io.select := encoder.io.in_dataSelect
-    toRemoteWriteMUXArray(idx).io.select := encoder.io.in_dataSelect
+    toRemoteReadMUXArray(idx).io.select := encoder.io.in_dataSelect.resize(log2Up(conf.nTxnMan) bits)
+    toRemoteWriteMUXArray(idx).io.select := encoder.io.in_dataSelect.resize(log2Up(conf.nTxnMan) bits)
     encoder.io.in_dataRead << toRemoteReadMUXArray(idx).io.output
     encoder.io.in_dataWrite << toRemoteWriteMUXArray(idx).io.output
   }

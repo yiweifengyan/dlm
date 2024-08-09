@@ -52,6 +52,20 @@ class TwoTxnManTwoTableTwoNet(sysConf: MinSysConfig) extends Component {
   txnManA.io.fromRemoteRead     << netManA.io.fromRemoteRead(0) 
   txnManA.io.fromRemoteWrite    << netManA.io.fromRemoteWrite(0) 
 
+  netManA.io.toRemoteLockReq(1).payload.assignFromBits(B(0, sysConf.wLockRequest bits))
+  netManA.io.toRemoteLockReq(1).valid    := False
+  netManA.io.toRemoteLockResp(1).payload.assignFromBits(B(0, sysConf.wLockResponse bits))
+  netManA.io.toRemoteLockResp(1).valid   := False
+  netManA.io.toRemoteRead(1).payload     := B(0, 512 bits)
+  netManA.io.toRemoteRead(1).valid       := False
+  netManA.io.toRemoteWrite(1).payload    := B(0, 512 bits)
+  netManA.io.toRemoteWrite(1).valid      := False
+
+  netManA.io.fromRemoteLockReq(1).ready  := False 
+  netManA.io.fromRemoteLockResp(1).ready := False 
+  netManA.io.fromRemoteRead(1).ready     := False 
+  netManA.io.fromRemoteWrite(1).ready    := False  
+
   netManA.io.rdmaSource >> netManB.io.rdmaSink
   netManA.io.rdmaSink   << netManB.io.rdmaSource
 /*
@@ -89,6 +103,20 @@ class TwoTxnManTwoTableTwoNet(sysConf: MinSysConfig) extends Component {
   txnManB.io.fromRemoteLockResp << netManB.io.fromRemoteLockResp(1)
   txnManB.io.fromRemoteRead     << netManB.io.fromRemoteRead(1) 
   txnManB.io.fromRemoteWrite    << netManB.io.fromRemoteWrite(1) 
+
+  netManB.io.toRemoteLockReq(0).payload.assignFromBits(B(0, sysConf.wLockRequest bits))
+  netManB.io.toRemoteLockReq(0).valid    := False
+  netManB.io.toRemoteLockResp(0).payload.assignFromBits(B(0, sysConf.wLockResponse bits))
+  netManB.io.toRemoteLockResp(0).valid   := False
+  netManB.io.toRemoteRead(0).payload     := B(0, 512 bits)
+  netManB.io.toRemoteRead(0).valid       := False
+  netManB.io.toRemoteWrite(0).payload    := B(0, 512 bits)
+  netManB.io.toRemoteWrite(0).valid      := False
+
+  netManB.io.fromRemoteLockReq(0).ready  := False 
+  netManB.io.fromRemoteLockResp(0).ready := False 
+  netManB.io.fromRemoteRead(0).ready     := False 
+  netManB.io.fromRemoteWrite(0).ready    := False 
 }
 
 object CoreNetSim{
@@ -97,9 +125,9 @@ object CoreNetSim{
     implicit val sysConf = new MinSysConfig {
       override val nNode: Int = 2
       override val nChannel: Int = 2
-      override val nTable: Int = 1
+      override val nTable: Int = 2
       override val nLock: Int = 65536
-      override val nTxnMan: Int = 1
+      override val nTxnMan: Int = 2
     }
 
     SimConfig.withWave.compile {

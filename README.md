@@ -61,6 +61,9 @@ $ mill dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 ./mill-0.10.4 dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 .\mill-0.10.3-assembly.bat dlm.runMain hwsys.dlm.test.WrapNodeNetSim
 On Linux Mint:
+./mill-0.10.12 dlm.runMain hwsys.dlm.test.TableSim
+./mill-0.10.12 dlm.runMain hwsys.dlm.test.CoreSim
+./mill-0.10.12 dlm.runMain hwsys.dlm.test.CoreNetSim
 ./mill-0.10.4 dlm.runMain hwsys.dlm.test.TableSim
 ./mill-0.10.4 dlm.runMain hwsys.dlm.test.CoreSim
 ```
