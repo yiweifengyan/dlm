@@ -28,6 +28,7 @@ class NetManagerIO(conf: MinSysConfig) extends Bundle{
 class DecoderReqResp(dataLen: Int, select: Int) extends Component {
   val io = new Bundle {
     val in_valid = in Bool()
+    val in_ready_sync = in Bool()
     val in_ready = out Bool()
     val in_data  = in Bits(64 bits)
     val out_valid = out Bool()
@@ -39,12 +40,13 @@ class DecoderReqResp(dataLen: Int, select: Int) extends Component {
     val WAIT_DATA = new State with EntryPoint
     val SEND_DATA = new State
 
-    val dataValid = io.in_data(0) ^ io.in_data(1) // lockRequest or lockResponse
+    val isReqResp = io.in_data(0) ^ io.in_data(1) // lockRequest or lockResponse
+    val input_fire= io.in_valid && isReqResp && io.in_ready_sync 
     io.in_ready := isActive(WAIT_DATA)
     WAIT_DATA.whenIsActive{
       io.out_data := io.in_data(63 downto 64 - dataLen)
       io.out_sel  := io.in_data(3 + select downto 4)
-      when(io.in_valid && dataValid)(goto(SEND_DATA))
+      when(input_fire)(goto(SEND_DATA))
     }
     io.out_valid := isActive(SEND_DATA)
     SEND_DATA.whenIsActive{
@@ -63,10 +65,19 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
     val out_data = master Stream Bits(512 bits)
     val out_length = out UInt(3 bits)
   }
+  /* The Network Packet Header Format
+  ** B3-B0
+  ** 1, // B3-B0: 0001, Lock Request 
+  ** 2, // B3-B0: 0010, Lock Response 
+  ** 3, // B3-B0: 0100, Data Read 
+  ** 4, // B3-B0: 1000, Data Write
+  ** B7-B4
+  ** XXXX: Rounting To Target TxnMan 
+  */
   val sendQReqs = Reg(Bits(512 bits)).init(0)
   val sendQData = Vec(Reg(Bits(512 bits)), NUM_SEND_Q_DATA) // 5 slot, ready to send
   val timeToSend = Reg(Bool()).init(False) // The time counter shows that it is timeout
-  val currentReqs = Reg(UInt(log2Up(512 / 64) bits)).init(0)
+  val packetNum  = Reg(UInt(log2Up(512 / 64) + 1 bits)).init(0)
   val currentData = Reg(UInt(log2Up(NUM_SEND_Q_DATA) bits)).init(0) // current data slot to load
   val dataPointer = Reg(UInt(log2Up(NUM_SEND_Q_DATA) bits)).init(0) // current data pointer when sending out data
   val timeOutCounter = Reg(UInt(conf.wSendTimeOut bits)).init(0)
@@ -80,7 +91,8 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
 
     io.in_response.ready := isActive(LOAD_REQS)
     io.in_request.ready := isActive(LOAD_REQS) && ~io.in_response.valid // Request has lower priority than Response
-    val to_send_reqs = timeToSend || ((io.in_response.fire || io.in_request.fire) && (currentReqs === 7)) // condition: switch to SEND_REQ
+    val to_send_reqs = ~io.in_response.fire && ~io.in_request.fire && (timeToSend || (packetNum === 8)) // condition: switch to SEND_REQ, 0-7 means there are 8 reqResps in the queue, it is full.
+    val to_send_reqs_in_fire = timeToSend || (packetNum === 7) // there are 7 reqResps in the queue already, loading current one is full
     val to_load_data_req = io.in_request.payload.toRelease && ~io.in_request.payload.txnTimeOut && io.in_request.payload.lockType.write && (io.in_request.payload.rwLength > 0)
     val to_load_data_resp = io.in_response.payload.granted && io.in_response.payload.lockType.read && (io.in_response.payload.rwLength > 0)
     val load_from_read = Reg(Bool()).init(False)     // load from READ_DATA or WRITE_DATA?
@@ -88,33 +100,37 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
     val loadCounter = Reg (UInt(conf.wRWLength bits))// one load: counter loading
     LOAD_REQS.whenIsActive{
       when(io.in_response.fire){ // ERROR: Fixed-Size Encoder and Decoder
-        sendQReqs(currentReqs * 64 +  0, 4 bits) := B(1, 4 bits) // B3-B0: 0001 The x(offset: UInt, width bits) Variable part-select of fixed width, offset is LSB index
-        sendQReqs(currentReqs * 64 +  4, 4 bits) := io.in_response.payload.srcTxnMan.asBits // where to route this package: srcTxnMan is also target/receiving TxnMan
-        sendQReqs(currentReqs * 64 +  8, 8 bits) := B(0, 8 bits) // Fill in with 0s
-        sendQReqs(currentReqs * 64 + 16,48 bits) := io.in_response.payload.asBits  // conf.wLockRequest
-        currentReqs := currentReqs + 1
-        when(currentReqs === 0)(timeOutStart.set())
-        when(to_load_data_req) {
+        sendQReqs(packetNum * 64 +  0, 4 bits) := B(2, 4 bits) // B3-B0: 0010. Lock Response. The x(offset: UInt, width bits) Variable part-select of fixed width, offset is LSB index
+        sendQReqs(packetNum * 64 +  4, 4 bits) := io.in_response.payload.srcTxnMan.asBits // where to route this package: srcTxnMan is also target/receiving TxnMan
+        sendQReqs(packetNum * 64 +  8, 8 bits) := B(0, 8 bits) // Fill in with 0s
+        sendQReqs(packetNum * 64 + 16,48 bits) := io.in_response.payload.asBits  // conf.wLockRequest
+        packetNum := packetNum + 1
+        when(packetNum === 0)(timeOutStart.set())
+        when(to_load_data_resp) {
           io.in_dataSelect := io.in_response.payload.srcTxnMan
           load_from_read   := True
           loadLength  := io.in_response.payload.rwLength
           loadCounter := 0
           goto(LOAD_DATA)
+        } otherwise {
+          when(to_send_reqs_in_fire)(goto(SEND_REQS))
         }
       }
       when(io.in_request.fire) {
-        sendQReqs(currentReqs * 64 +  0, 4 bits) := B(2, 4 bits) // B3-B0: 0010
-        sendQReqs(currentReqs * 64 +  4, 4 bits) := io.in_request.payload.srcTxnMan.asBits // where to route this package: srcTxnMan is also target/receiving TxnMan
-        sendQReqs(currentReqs * 64 +  8, 8 bits) := B(0, 8 bits) // Fill in with 0s
-        sendQReqs(currentReqs * 64 + 16,48 bits) := io.in_request.payload.asBits
-        currentReqs := currentReqs + 1
-        when(currentReqs === 0)(timeOutStart.set())
-        when(to_load_data_resp){
+        sendQReqs(packetNum * 64 +  0, 4 bits) := B(1, 4 bits) // B3-B0: 0001. Lock Request
+        sendQReqs(packetNum * 64 +  4, 4 bits) := io.in_request.payload.srcTxnMan.asBits // where to route this package: srcTxnMan is also target/receiving TxnMan
+        sendQReqs(packetNum * 64 +  8, 8 bits) := B(0, 8 bits) // Fill in with 0s
+        sendQReqs(packetNum * 64 + 16,48 bits) := io.in_request.payload.asBits
+        packetNum := packetNum + 1
+        when(packetNum === 0)(timeOutStart.set())
+        when(to_load_data_req){
           io.in_dataSelect := io.in_request.payload.srcTxnMan
           load_from_read   := False
           loadLength  := io.in_request.payload.rwLength
           loadCounter := 0
           goto(LOAD_DATA)
+        } otherwise {
+          when(to_send_reqs_in_fire)(goto(SEND_REQS))
         }
       }
       when(to_send_reqs)(goto(SEND_REQS))
@@ -124,18 +140,20 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
     io.in_dataWrite.ready := isActive(LOAD_DATA) && ~load_from_read
     LOAD_DATA.whenIsActive{
       when(io.in_dataRead.fire){
-        sendQData(currentData)(  7 downto 0) := io.in_dataSelect.resize(4) ## B(4, 4 bits) // B3-B0: 0100
+        sendQData(currentData)(  7 downto 0) := io.in_dataSelect.resize(4) ## B(4, 4 bits) // B3-B0: 0100, Data Read
         sendQData(currentData)(511 downto 8) := io.in_dataRead.payload(511 downto 8)
       }
       when(io.in_dataWrite.fire){
-        sendQData(currentData)(  7 downto 0) := io.in_dataSelect.resize(4) ## B(8, 4 bits) // B3-B0: 1000
+        sendQData(currentData)(  7 downto 0) := io.in_dataSelect.resize(4) ## B(8, 4 bits) // B3-B0: 1000, Data Write
         sendQData(currentData)(511 downto 8) := io.in_dataWrite.payload(511 downto 8)
       }
       when(io.in_dataWrite.fire || io.in_dataRead.fire){
         currentData := currentData + 1
         loadCounter := loadCounter + 1
         when(loadCounter === loadLength - 1) {
-          when((currentData > 1) || timeToSend) { // currentData=2, actual loaded data =3, now we have 1 reqResp and >=3 data packets: can send out
+          val to_send_data = (currentData > 1) || timeToSend || (packetNum === 8) // packetNum is 8: there are 8 reqResps in the queue, it is full
+          // currentData >=2, actual loaded data >=3, now we have (1 reqResp) + (>=3 data) = (>=4 packets): can send out
+          when(to_send_data) { 
             goto(SEND_REQS)
           } otherwise {
             goto(LOAD_REQS)
@@ -151,7 +169,7 @@ class EncoderReqRespData(conf: MinSysConfig, NUM_SEND_Q_DATA: Int, NUM_SELECT_BI
       timeToSend.clear() // clear the signals on timeOut counter
       timeOutStart.clear()
       timeOutCounter.clearAll()
-      currentReqs.clearAll() // clear the reqRespCounter
+      packetNum.clearAll() // clear the reqRespCounter
       io.out_data.payload := sendQReqs
       when(io.out_data.fire){
         sendQReqs := 0 // flush the content of reqResp
@@ -261,7 +279,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   // 1, MUX rdmaSink into Req/Resp and Read/Write ports
   val recvQReqs = StreamFifo(Bits(512 bits), NUM_RECVQ_REQS)
   val recvQData = StreamFifo(Bits(512 bits), NUM_RECVQ_DATA)
-  val resvQSelect = io.rdmaSink.payload(0) || io.rdmaSink.payload(1) // Bit 0: LockReq, Bit 1: Lock Response
+  val resvQSelect = io.rdmaSink.payload(0) || io.rdmaSink.payload(1) // Bit 0: LockReq, Bit 1: Lock Response, Bit 2: Data Read, Bit 3: Data Write
   val recvQDemux = StreamDemux(io.rdmaSink, resvQSelect.asUInt, 2)
   recvQDemux(1) >> recvQReqs.io.push
   recvQDemux(0) >> recvQData.io.push
@@ -269,15 +287,15 @@ class NetManager(conf: MinSysConfig) extends Component {
   // 2, extract ResvQ Req/Resp. Remove headers in parallel, then send to TxnMan's recv ports
   val decoderArray = Array.fill(NUM_DECODERS)(new DecoderReqResp(conf.wLockRequest, conf.wTxnManID))
   // recvQReqs.io.pop.ready := decoderArray.reduce((x,y) => x.io.in_ready && y.io.in_ready) // type mismatch; [error]  found   : spinal.core.Bool [error]  required: hwsys.dlm.DecoderReqResp
-  // recvQReqs.io.pop.ready := decoderArray(0).ready && decoderArray(1).ready && decoderArray(2).ready && decoderArray(3).ready && decoderArray(4).ready && decoderArray(5).ready && decoderArray(6).ready && decoderArray(7).ready
   val decoderArrayReady = Bits(NUM_DECODERS bits)
   for (i <- 0 until NUM_DECODERS)
     decoderArrayReady(i) := decoderArray(i).io.in_ready
-  recvQReqs.io.pop.ready := decoderArrayReady.andR
+  val decoderReadySync = decoderArrayReady.andR
+  recvQReqs.io.pop.ready := decoderReadySync
   // crossBar part 1: 8 req/resp to nTxnMan
   val reqRespDemuxArray = Array.fill(NUM_DECODERS)(new StreamDemux(Bits(conf.wLockRequest bits), conf.nTxnMan))
   decoderArray.zipWithIndex.foreach { case (decoder, idx) =>
-    // recvQReqs.io.pop.ready := decoder.io.in_ready
+    decoder.io.in_ready_sync := decoderReadySync
     decoder.io.in_valid  := recvQReqs.io.pop.valid
     decoder.io.in_data   := recvQReqs.io.pop.payload(idx * 64 + 63 downto idx * 64)
     decoder.io.out_ready := reqRespDemuxArray(idx).io.input.ready
@@ -293,12 +311,13 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toTxnManReqResps = Array.fill(conf.nTxnMan)(new StreamDemux(Bits(conf.wLockRequest bits), 2))
   val toTxnManRawReqs  = Array.fill(conf.nTxnMan)(new Stream(Bits(conf.wLockRequest bits)))
   val toTxnManRawResp  = Array.fill(conf.nTxnMan)(new Stream(Bits(conf.wLockRequest bits)))
+  // Arbiter Array output are normal. To check the following lines
   (reqRespArbiterArray, toTxnManReqResps).zipped.foreach(_.io.output >> _.io.input)
   toTxnManReqResps.zipWithIndex.foreach{ case (reqResp, idx) =>
-    reqResp.io.select := (reqResp.io.input.payload(31) || reqResp.io.input.payload(30) || reqResp.io.input.payload(29) || reqResp.io.input.payload(28)).asUInt
-    // ERROR: HIERARCHY VIOLATION : (toplevel/netMan/io_fromRemoteLockResp_0_ready : in Bool) is driven by io_fromRemoteLockResp_0_transmuted_ready, but isn't accessible in the netMan component.
+    reqResp.io.select := (reqResp.io.input.payload(29) || reqResp.io.input.payload(28)).asUInt // Lock resp bits 28-31 are zero, val tableIdx = UInt(conf.wTableID bits) = 0, so sel = 1 for lock reqs, = 0 for resps
+    // ERROR SOLVED: HIERARCHY VIOLATION : (toplevel/netMan/io_fromRemoteLockResp_0_ready : in Bool) is driven by io_fromRemoteLockResp_0_transmuted_ready, but isn't accessible in the netMan component.
     // io.fromRemoteLockResp(idx).transmuteWith(reqResp.io.outputs(0).queue(NUM_TO_TXNMAN_RESPQ))
-    toTxnManRawResp(idx) << reqResp.io.outputs(0).queue(NUM_TO_TXNMAN_RESPQ)
+    toTxnManRawResp(idx) << reqResp.io.outputs(0).queue(NUM_TO_TXNMAN_RESPQ) // Selector is False go to port 0 lock req, otherwise go to port 1 lock resp
     io.fromRemoteLockResp(idx).payload.assignFromBits(toTxnManRawResp(idx).payload)
     io.fromRemoteLockResp(idx).valid := toTxnManRawResp(idx).valid
     toTxnManRawResp(idx).ready       := io.fromRemoteLockResp(idx).ready
@@ -310,14 +329,15 @@ class NetManager(conf: MinSysConfig) extends Component {
   }
 
   // 3, extract ResvQ Read/Write.
-  val recvDataDemux = StreamDemux(recvQData.io.pop, recvQData.io.pop.payload(4).asUInt, 2) // Bit 4: Data Write
+  val recvDataDemux = StreamDemux(recvQData.io.pop, recvQData.io.pop.payload(3).asUInt, 2) // Bit 3: Data Read. Bit 4: Data Write
   val recvReadDemux = StreamDemux(recvDataDemux(0), recvDataDemux(0).payload(7 downto 4).asUInt.resize(log2Up(conf.nTxnMan) bits), conf.nTxnMan)
   val recvWriteDemux = StreamDemux(recvDataDemux(1), recvDataDemux(1).payload(7 downto 4).asUInt.resize(log2Up(conf.nTxnMan) bits), conf.nTxnMan)
   io.fromRemoteRead.zipWithIndex.foreach{ case(readPort, i) =>
-    readPort << recvReadDemux(i).queue(NUM_TO_TXNMAN_DATAQ)
+    readPort << recvReadDemux(i)
+    // recvReadDemux(i).ready := readPort.ready // ERROR: ASSIGNMENT OVERLAP completely the previous one of (toplevel/netManB/[StreamDemux]/io_outputs_1_ready : in Bool)
   }
   io.fromRemoteWrite.zipWithIndex.foreach{ case(writePort, i) =>
-    writePort << recvWriteDemux(i).queue(NUM_TO_TXNMAN_DATAQ)
+    writePort << recvWriteDemux(i)
   }
 
 
