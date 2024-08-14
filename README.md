@@ -210,6 +210,8 @@ Dense write, 128 txns with 30 sequential lockIDs.
 [txnMan] cntClk: 7039
 [Done] Simulation done in 24560.012 ms
 
+CoreSim
+
 Two TxnMan Two Tables simulate passed all read. Node 0 and 1 both 128 txns,
 [txnMan] cntTxnCmt: 128
 [txnMan] cntTxnAbt: 0
@@ -234,6 +236,28 @@ shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.4 dlm.runMain hwsys.dlm
 [txnMan] cntTxnLd: 128
 [txnMan] cntClk: 32433
 [Done] Simulation done in 20409.428 ms
+
+Two TxnMan Two Tables simulate passed all Write. Node 0 and 1 both 128 txns,
+shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.12 dlm.runMain hwsys.dlm.test.CoreSim
+[32/43] dlm.compile 
+[info] compiling 1 Scala source to /home/shaun/Documents/dlm/out/dlm/compile.dest/classes ...
+[info] done compiling
+[43/43] dlm.runMain 
+[Runtime] SpinalHDL v1.10.1    git head : 2527c7c6b0fb0f95e5e1a5722a0be732b364ce43
+[Runtime] JVM max memory : 2476.0MiB
+[Runtime] Current date : 2024.08.14 10:19:48
+[Progress] at 0.000 : Elaborate components
+[Progress] at 1.288 : Checks and transforms
+[Progress] at 2.671 : Generate Verilog
+[txnManA] cntTxnCmt: 128
+[txnManA] cntTxnAbt: 0
+[txnManA] cntTxnLd: 128
+[txnManA] cntClk: 88917
+[txnManB] cntTxnCmt: 128
+[txnManB] cntTxnAbt: 0
+[txnManB] cntTxnLd: 128
+[txnManB] cntClk: 89197
+[Done] Simulation done in 42199.175 ms
 
 CoreNetSim Results:
 Passed Node 0 128 Txns with all read locks.
@@ -263,4 +287,23 @@ shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.12 dlm.runMain hwsys.dl
 [txnMan] cntTxnLd: 128
 [txnMan] cntClk: 24240
 [Done] Simulation done in 78835.027 ms
+
+Node 0 and 1 both 128 write on same locks passed!
+shaun@shaun-virtual-machine:~/Documents/dlm$ ./mill-0.10.12 dlm.runMain hwsys.dlm.test.CoreNetSim
+[43/43] dlm.runMain 
+[Runtime] SpinalHDL v1.10.1    git head : 2527c7c6b0fb0f95e5e1a5722a0be732b364ce43
+[Runtime] JVM max memory : 2476.0MiB
+[Runtime] Current date : 2024.08.14 19:24:51
+[Progress] at 0.000 : Elaborate components
+[Progress] at 1.493 : Checks and transforms
+[Progress] at 4.305 : Generate Verilog
+[txnManA] cntTxnCmt: 125 // I read out data when TxnManB.done, so it is normal if TxnManA is still in progress.
+[txnManA] cntTxnAbt: 0
+[txnManA] cntTxnLd: 128
+[txnManA] cntClk: 134578
+[txnManB] cntTxnCmt: 128
+[txnManB] cntTxnAbt: 0
+[txnManB] cntTxnLd: 128
+[txnManB] cntClk: 134578
+[Done] Simulation done in 122594.006 ms
 ```

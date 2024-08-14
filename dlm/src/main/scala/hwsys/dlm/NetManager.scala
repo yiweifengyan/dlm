@@ -27,30 +27,32 @@ class NetManagerIO(conf: MinSysConfig) extends Bundle{
 
 class DecoderReqResp(dataLen: Int, select: Int) extends Component {
   val io = new Bundle {
-    val in_valid = in Bool()
-    val in_ready_sync = in Bool()
-    val in_ready = out Bool()
-    val in_data  = in Bits(64 bits)
-    val out_valid = out Bool()
-    val out_ready = in Bool()
-    val out_data  = out(Reg(Bits(dataLen bits)))
-    val out_sel   = out(Reg(Bits(select bits)))
+    val input        = slave Stream Bits(64 bits)
+    val inputSync    = in Bool()
+    val output       = master Stream Bits(dataLen bits)
+    val outputSelect = out(Reg(UInt(select bits)))
   }
   val FSM = new StateMachine{
     val WAIT_DATA = new State with EntryPoint
     val SEND_DATA = new State
 
-    val isReqResp = io.in_data(0) ^ io.in_data(1) // lockRequest or lockResponse
-    val input_fire= io.in_valid && isReqResp && io.in_ready_sync 
-    io.in_ready := isActive(WAIT_DATA)
+    val isReqResp = io.input.payload(0) ^ io.input.payload(1) // lockRequest or lockResponse
+    val inputFire = io.input.fire && isReqResp && io.inputSync 
+    val outputData = Reg(Bits(dataLen bits))
+
+    io.input.ready := isActive(WAIT_DATA)
     WAIT_DATA.whenIsActive{
-      io.out_data := io.in_data(63 downto 64 - dataLen)
-      io.out_sel  := io.in_data(3 + select downto 4)
-      when(input_fire)(goto(SEND_DATA))
+      when(inputFire){
+        outputData := io.input.payload(63 downto 64 - dataLen)
+        io.outputSelect  := io.input.payload(3 + select downto 4).asUInt
+        goto(SEND_DATA)
+      }
     }
-    io.out_valid := isActive(SEND_DATA)
+
+    io.output.valid   := isActive(SEND_DATA)
+    io.output.payload := outputData
     SEND_DATA.whenIsActive{
-      when(io.out_ready)(goto(WAIT_DATA))
+      when(io.output.fire)(goto(WAIT_DATA))
     }
   }
 }
@@ -206,7 +208,7 @@ class PacketSender(portCount: Int, wSendLength: Int) extends Component{
   val maskProposal = Vec(Bool(),portCount)
   val maskLocked   = Reg(Vec(Bool(),portCount))
   val maskRouted   = Mux(locked, maskLocked, maskProposal) //Mux(cond, outputWhenTrue, outputWhenFalse)
-  // dataLength = MuxOH(maskRouted, io.inLength) // how many data packets to send in current selection
+  // Realize dataLength = MuxOH(maskRouted, io.inLength) // how many data packets to send in current selection
   val dataLength   = UInt(wSendLength bits)
   dataLength := 0
   for (i <- 0 until portCount){
@@ -275,7 +277,7 @@ class NetManager(conf: MinSysConfig) extends Component {
 
   /* ******************************************
   * Decode packets: rdmaSink --> fromRemoteData
-  * */
+  ** **/
   // 1, MUX rdmaSink into Req/Resp and Read/Write ports
   val recvQReqs = StreamFifo(Bits(512 bits), NUM_RECVQ_REQS)
   val recvQData = StreamFifo(Bits(512 bits), NUM_RECVQ_DATA)
@@ -289,24 +291,22 @@ class NetManager(conf: MinSysConfig) extends Component {
   // recvQReqs.io.pop.ready := decoderArray.reduce((x,y) => x.io.in_ready && y.io.in_ready) // type mismatch; [error]  found   : spinal.core.Bool [error]  required: hwsys.dlm.DecoderReqResp
   val decoderArrayReady = Bits(NUM_DECODERS bits)
   for (i <- 0 until NUM_DECODERS)
-    decoderArrayReady(i) := decoderArray(i).io.in_ready
+    decoderArrayReady(i) := decoderArray(i).io.input.ready
   val decoderReadySync = decoderArrayReady.andR
   recvQReqs.io.pop.ready := decoderReadySync
   // crossBar part 1: 8 req/resp to nTxnMan
   val reqRespDemuxArray = Array.fill(NUM_DECODERS)(new StreamDemux(Bits(conf.wLockRequest bits), conf.nTxnMan))
   decoderArray.zipWithIndex.foreach { case (decoder, idx) =>
-    decoder.io.in_ready_sync := decoderReadySync
-    decoder.io.in_valid  := recvQReqs.io.pop.valid
-    decoder.io.in_data   := recvQReqs.io.pop.payload(idx * 64 + 63 downto idx * 64)
-    decoder.io.out_ready := reqRespDemuxArray(idx).io.input.ready
-    reqRespDemuxArray(idx).io.input.valid   := decoder.io.out_valid
-    reqRespDemuxArray(idx).io.input.payload := decoder.io.out_data
-    reqRespDemuxArray(idx).io.select        := decoder.io.out_sel.asUInt.resize(log2Up(conf.nTxnMan) bits)
+    decoder.io.inputSync       := decoderReadySync
+    decoder.io.input.valid     := recvQReqs.io.pop.valid
+    decoder.io.input.payload   := recvQReqs.io.pop.payload(idx * 64 + 63 downto idx * 64)
+    decoder.io.output >> reqRespDemuxArray(idx).io.input
+    reqRespDemuxArray(idx).io.select := decoder.io.outputSelect.resize(log2Up(conf.nTxnMan) bits)
   }
   // crossBar part 2: nTxnMan accept 8 req/Resp with lowerFirst priority
   val reqRespArbiterArray = Array.fill(conf.nTxnMan)(new StreamArbiter(Bits(conf.wLockRequest bits), NUM_DECODERS)(StreamArbiter.Arbitration.lowerFirst, StreamArbiter.Lock.none))
   for (i <- 0 until conf.nTxnMan)
-    (reqRespDemuxArray.map(_.io.outputs(i)), reqRespArbiterArray(i).io.inputs).zipped.foreach(_ >/-> _) // pipelined
+    (reqRespDemuxArray.map(_.io.outputs(i)), reqRespArbiterArray(i).io.inputs).zipped.foreach(_ >> _) // pipelined
   // separate the lock requests from responses
   val toTxnManReqResps = Array.fill(conf.nTxnMan)(new StreamDemux(Bits(conf.wLockRequest bits), 2))
   val toTxnManRawReqs  = Array.fill(conf.nTxnMan)(new Stream(Bits(conf.wLockRequest bits)))
@@ -368,7 +368,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toRemoteReadMUXArray = Array.fill(NUM_NODES)(new StreamMux(Bits(512 bits), conf.nTxnMan))
   toRemoteReadDemuxArray.zipWithIndex.foreach { case (demux, idx) =>
     demux.io.input << io.toRemoteRead(idx)
-    demux.io.select := io.toRemoteLockResp(idx).payload.srcNode
+    demux.io.select := io.toRemoteRead(idx).payload(4, conf.wNodeID bits).asUInt
   }
   for (i <- 0 until NUM_NODES)
     (toRemoteReadDemuxArray.map(_.io.outputs(i)), toRemoteReadMUXArray(i).io.inputs).zipped.foreach(_ >/-> _)
@@ -377,7 +377,7 @@ class NetManager(conf: MinSysConfig) extends Component {
   val toRemoteWriteMUXArray = Array.fill(NUM_NODES)(new StreamMux(Bits(512 bits), conf.nTxnMan))
   toRemoteWriteDemuxArray.zipWithIndex.foreach { case (demux, idx) =>
     demux.io.input << io.toRemoteWrite(idx)
-    demux.io.select := io.toRemoteLockReq(idx).payload.nodeID
+    demux.io.select := io.toRemoteWrite(idx).payload(4, conf.wNodeID bits).asUInt
   }
   for (i <- 0 until NUM_NODES)
     (toRemoteWriteDemuxArray.map(_.io.outputs(i)), toRemoteWriteMUXArray(i).io.inputs).zipped.foreach(_ >/-> _)

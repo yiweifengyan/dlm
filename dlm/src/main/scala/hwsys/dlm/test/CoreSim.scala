@@ -79,6 +79,7 @@ object CoreSim{
       // val dut = new OneTxnManOneLockTable(sysConf)
       val dut = new TwoTxnManTwoLockTable(sysConf)
       dut.txnManA.io.simPublic()
+      dut.txnManB.io.simPublic()
       dut
     }.doSim("TwoTxnManTwoLockTable", 99) { dut =>
       // params
@@ -92,8 +93,8 @@ object CoreSim{
       val fNId = (i: Int, j: Int) => i % sysConf.nNode
       val fCId = (i: Int, j: Int) => j % sysConf.nChannel
       val fTId = (i: Int, j: Int) => (i*j+j) % sysConf.nTable
-      val fLockID = (i: Int, j: Int) => 16 + i*j+j
-      val fLockType = (i: Int, j: Int) => 2 - (i % sysConf.nNode)  //  Node 1 serves all read locks, Node 0 serves All write locks
+      val fLockID = (i: Int, j: Int) => 16 + j * 32
+      val fLockType = (i: Int, j: Int) => 2 //  All locks are write
       val fWLen   = (i: Int, j: Int) => 1
       val txnCtx  = SimInit.txnEntrySim(txnCnt, txnLen, txnMaxLen)(fNId, fCId, fTId, fLockID, fLockType, fWLen).toArray
       val cmdAxiMem = SimDriver.instAxiMemSim(dut.io.loadAXI, dut.clockDomain, Some(txnCtx))
@@ -119,14 +120,16 @@ object CoreSim{
       dut.clockDomain.waitSampling()
       dut.io.start #= false
 
-      // dut.clockDomain.waitSampling(64000)
+      dut.clockDomain.waitSamplingWhere(dut.txnManB.io.done.toBoolean)
 
-      dut.clockDomain.waitSamplingWhere(dut.txnManA.io.done.toBoolean)
-
-      println(s"[txnMan] cntTxnCmt: ${dut.txnManA.io.cntTxnCmt.toBigInt}")
-      println(s"[txnMan] cntTxnAbt: ${dut.txnManA.io.cntTxnAbt.toBigInt}")
-      println(s"[txnMan] cntTxnLd: ${dut.txnManA.io.cntTxnLd.toBigInt}")
-      println(s"[txnMan] cntClk: ${dut.txnManA.io.cntClk.toBigInt}")
+      println(s"[txnManA] cntTxnCmt: ${dut.txnManA.io.cntTxnCmt.toBigInt}")
+      println(s"[txnManA] cntTxnAbt: ${dut.txnManA.io.cntTxnAbt.toBigInt}")
+      println(s"[txnManA] cntTxnLd: ${dut.txnManA.io.cntTxnLd.toBigInt}")
+      println(s"[txnManA] cntClk: ${dut.txnManA.io.cntClk.toBigInt}")
+      println(s"[txnManB] cntTxnCmt: ${dut.txnManB.io.cntTxnCmt.toBigInt}")
+      println(s"[txnManB] cntTxnAbt: ${dut.txnManB.io.cntTxnAbt.toBigInt}")
+      println(s"[txnManB] cntTxnLd: ${dut.txnManB.io.cntTxnLd.toBigInt}")
+      println(s"[txnManB] cntClk: ${dut.txnManB.io.cntClk.toBigInt}")
     }
   }
 }
