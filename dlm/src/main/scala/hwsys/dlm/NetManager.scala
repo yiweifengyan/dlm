@@ -22,6 +22,7 @@ class NetManagerIO(conf: MinSysConfig) extends Bundle{
   val toRemoteWrite, toRemoteRead = Vec(slave Stream Bits(512 bits), conf.nTxnMan)
   // Interface between RDMA and NetManager
   val rdmaSink = slave Stream Bits(512 bits)
+  val sendToNode = out UInt(conf.wNodeID bits)
   val rdmaSource = master Stream Bits(512 bits)
 }
 
@@ -202,6 +203,7 @@ class PacketSender(portCount: Int, wSendLength: Int) extends Component{
     val inputs   = Vec(slave Stream Bits(512 bits), portCount)
     val inLength = Vec(in UInt(wSendLength bits), portCount)
     val output   = master Stream Bits(512 bits)
+    val toNode   = out UInt(log2Up(portCount) bits)
   }
 
   val locked = RegInit(False).allowUnsetRegToAvoidLatch
@@ -220,6 +222,7 @@ class PacketSender(portCount: Int, wSendLength: Int) extends Component{
         at spinal.lib.MuxOHImpl.apply(Utils.scala:102)
   */
   val sendCounter  = Reg(UInt(wSendLength bits)).init(0)
+  toNode := OHtoUInt(maskRouted)
 
   val FSM = new StateMachine{
     val SEND_ONE = new State with EntryPoint
@@ -397,5 +400,6 @@ class NetManager(conf: MinSysConfig) extends Component {
     sender.io.inputs(idx) << encoder.io.out_data 
     sender.io.inLength(idx) := encoder.io.out_length
   }
+  io.sendToNode := sender.io.toNode.resize(conf.wNodeID bits)
   sender.io.output >> io.rdmaSource
 }

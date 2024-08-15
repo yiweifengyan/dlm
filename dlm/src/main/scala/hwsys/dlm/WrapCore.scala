@@ -19,8 +19,10 @@ class CoreIO(sysConf: MinSysConfig) extends Bundle {
   val done   = out Vec(Bool(), sysConf.nTxnMan)
   val cntClk = out Vec(UInt(sysConf.wTimeStamp bits), sysConf.nTxnMan)
   val cntTxnCmt, cntTxnAbt, cntTxnLd, cntLockLoc, cntLockRmt, cntLockDenyLoc, cntLockDenyRmt = out Vec(UInt(32 bits), sysConf.nTxnMan)
+  val cntRmtLockGrant, cntRmtLockWait, cntRmtLockDeny, cntRmtLockRelease = out Vec(UInt(32 bits), sysConf.nTxnMan)
   // RDMA Info
   val rdmaSink = slave Stream Bits(512 bits)
+  val sendToNode = out UInt(sysConf.wNodeID bits)
   val rdmaSource = master Stream Bits(512 bits)
 }
 
@@ -46,6 +48,10 @@ class WrapCore(conf: MinSysConfig) extends Component {
   (txnManArray, io.cntLockRmt).zipped.foreach(_.io.cntLockRmt <> _)
   (txnManArray, io.cntLockDenyLoc).zipped.foreach(_.io.cntLockDenyLoc <> _)
   (txnManArray, io.cntLockDenyRmt).zipped.foreach(_.io.cntLockDenyRmt <> _)
+  (txnManArray, io.cntRmtLockGrant).zipped.foreach(_.io.cntRmtLockGrant <> _)
+  (txnManArray, io.cntRmtLockWait).zipped.foreach(_.io.cntRmtLockWait <> _)
+  (txnManArray, io.cntRmtLockDeny).zipped.foreach(_.io.cntRmtLockDeny <> _)
+  (txnManArray, io.cntRmtLockRelease).zipped.foreach(_.io.cntRmtLockRelease <> _)
 
   // txnMan connects to part of io vec
   txnManArray.zipWithIndex.foreach { case (txnMan, idx) =>
@@ -96,4 +102,5 @@ class WrapCore(conf: MinSysConfig) extends Component {
   }
   netManager.io.rdmaSink   << io.rdmaSink
   netManager.io.rdmaSource >> io.rdmaSource
+  io.sendToNode := netManager.io.sendToNode
 }
